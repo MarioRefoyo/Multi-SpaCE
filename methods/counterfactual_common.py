@@ -11,7 +11,7 @@ class CounterfactualMethod(ABC):
             self.predict_function = self.predict_function_tf
             self.feature_axis = 2
         else:
-            raise ValueError('backend not implemented')
+            raise ValueError('Backend not supported')
 
     def predict_function_tf(self, inputs):
         # Predict

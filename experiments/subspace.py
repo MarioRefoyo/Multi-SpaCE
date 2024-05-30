@@ -8,12 +8,12 @@ import numpy as np
 from tqdm import tqdm
 from tensorflow import keras
 
-from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, store_partial_cfs
+from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, store_partial_cfs, ucr_data_loader
 from experiments.results.results_concatenator import concatenate_result_files
 
 from methods.SubSpaCECF import SubSpaCECF
 
-DATASETS = ['CBF', 'chinatown', 'coffee', 'gunpoint', 'ECG200']
+DATASETS = ['NATOPS']
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
@@ -21,13 +21,13 @@ POOL_SIZE = 10
 
 
 experiments = {
-    'subspace': {
+    'subspace_individual_v3': {
         'params': {
-            'population_size': 100,
-            'change_subseq_mutation_prob': 0.05,
-            'elite_number': 4,
-            'offsprings_number': 96,
-            'max_iter': 100,
+            'population_size': 200,
+            'change_subseq_mutation_prob': 0.1,
+            'elite_number': 8,
+            'offsprings_number': 192,
+            'max_iter': 150,
             'init_pct': 0.2,
             'reinit': True,
             'alpha': 0.2,
@@ -35,6 +35,24 @@ experiments = {
             'eta': 0.2,
             'gamma': 0.25,
             'sparsity_balancer': 0.4,
+            'multivariate_mode': 'individual',
+        },
+    },
+    'subspace_grouped_v3': {
+        'params': {
+            'population_size': 200,
+            'change_subseq_mutation_prob': 0.1,
+            'elite_number': 8,
+            'offsprings_number': 192,
+            'max_iter': 150,
+            'init_pct': 0.2,
+            'reinit': True,
+            'alpha': 0.2,
+            'beta': 0.6,
+            'eta': 0.2,
+            'gamma': 0.25,
+            'sparsity_balancer': 0.4,
+            'multivariate_mode': 'grouped',
         },
     },
 }
@@ -75,8 +93,6 @@ def get_counterfactual_worker(sample_dict):
 
 
 def experiment_dataset(dataset, exp_name, params):
-    # Load dataset data
-    # X_train, y_train, X_test, y_test = ucr_data_loader(DATASET, store=True)
     X_train, y_train, X_test, y_test = local_data_loader(str(dataset), data_path="./data")
     y_train, y_test = label_encoder(y_train, y_test)
 

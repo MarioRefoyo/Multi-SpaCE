@@ -7,7 +7,7 @@ class EvolutionaryOptimizer(ABC):
     def __init__(self, fitness_func, prediction_func, population_size, elite_number, offsprings_number, max_iter,
                  init_pct, reinit,
                  invalid_penalization, alpha, beta, eta, gamma, sparsity_balancer,
-                 feature_axis):
+                 feature_axis, multivariate_mode):
         # Asert elite numbers and replacement count do not surpass population size
         if elite_number + offsprings_number > population_size:
             raise ValueError('Elites and offsprings counts must not be greater than population size')
@@ -34,12 +34,44 @@ class EvolutionaryOptimizer(ABC):
         self.fitness_evolution = []
 
         self.feature_axis = feature_axis
+        self.multivariate_mode = multivariate_mode
 
         self.reinit = reinit
 
-    @abstractmethod
     def init_population(self, importance_heatmap=None):
-        pass
+        # Threat all channels as an individual instance (crossover and mutate them independently)
+        if self.multivariate_mode == 'individual':
+            # Init population
+            random_data = np.random.uniform(
+                0, 1,
+                (self.population_size,) + self.x_orig.shape
+            )
+            if importance_heatmap is not None:
+                mix_ratio = 0.6
+                inducted_data = (mix_ratio * random_data + (1 - mix_ratio) * importance_heatmap) / 2
+            else:
+                inducted_data = random_data
+        # Work on instance level, mutate and crossover all channels at the same time
+        elif self.multivariate_mode == 'grouped':
+            # Init population
+            random_data = np.random.uniform(
+                0, 1,
+                (self.population_size,) + self.x_orig.mean(axis=self.feature_axis-1).shape + (1,)
+            )
+            if importance_heatmap is not None:
+                importance_heatmap_mean = importance_heatmap.mean(axis=self.feature_axis-1).reshape(self.ts_length, 1)
+                mix_ratio = 0.6
+                inducted_data = (mix_ratio * random_data + (1 - mix_ratio) * importance_heatmap_mean) / 2
+            else:
+                inducted_data = random_data
+        else:
+            raise ValueError("Multivariate mode is not supported.")
+
+        # Calculate quantile and population
+        quantile_80 = np.quantile(inducted_data.flatten(), 1 - self.init_pct)
+        population = (inducted_data > quantile_80).astype(int)
+
+        return population
 
     def init(self, x_orig, nun_example, desired_class, model, outlier_calculator=None, importance_heatmap=None):
         self.x_orig = x_orig
@@ -48,15 +80,17 @@ class EvolutionaryOptimizer(ABC):
         self.model = model
         self.outlier_calculator = outlier_calculator
         self.importance_heatmap = importance_heatmap
-        self.init_population(self.importance_heatmap)
 
         # Get dimensionality attributes
         if self.feature_axis == 2:
             self.n_features = x_orig.shape[1]
             self.ts_length = x_orig.shape[0]
         else:
-            self.n_features = x_orig.shape[0]
-            self.ts_length = x_orig.shape[1]
+            raise ValueError('Feature Axis Value is not valid. Only 2 is supported (for tf models)')
+
+        # Init population
+        population = self.init_population(self.importance_heatmap)
+        self.population = population
 
         # Compute initial outlier scores
         self.outlier_scores_orig = self.outlier_calculator.get_outlier_scores(self.x_orig)
@@ -69,27 +103,31 @@ class EvolutionaryOptimizer(ABC):
     def mutate(self, sub_population):
         pass
 
-    def get_single_crossover_mask(self, subpopulation):
+    @staticmethod
+    def get_single_crossover_mask(subpopulation):
         split_points = np.random.randint(0, subpopulation.shape[1], size=subpopulation.shape[0] // 2)
         mask = np.arange(subpopulation.shape[1]) < split_points[:, np.newaxis]
         return mask
 
     def produce_offsprings(self, subpopulation, number):
-        # Put features as individual examples
+        # Put channels as individual examples
         # Swap axis if features are in axis 2
         if self.feature_axis == 2:
             # Get sample population
             adapted_subpopulation = np.swapaxes(subpopulation, 2, 1)
         else:
             adapted_subpopulation = subpopulation
-        adapted_number = number * self.n_features
+        subpopulation_n_features = subpopulation.shape[self.feature_axis]
+        adapted_number = number * subpopulation_n_features
         adapted_subpopulation = adapted_subpopulation.reshape(adapted_number, -1)
 
         # Generate random split points and create mask
         mask = self.get_single_crossover_mask(adapted_subpopulation)
 
         # Generate random matches
-        matches = np.random.choice(np.arange(adapted_subpopulation.shape[0]), size=(adapted_subpopulation.shape[0] // 2, 2), replace=False)
+        matches = np.random.choice(np.arange(adapted_subpopulation.shape[0]),
+                                   size=(adapted_subpopulation.shape[0] // 2, 2),
+                                   replace=False)
 
         # Create the two partial offsprings
         offsprings1 = np.empty((adapted_number//2, adapted_subpopulation.shape[1]))
@@ -105,7 +143,7 @@ class EvolutionaryOptimizer(ABC):
         adapted_offsprings = self.mutate(adapted_offsprings)
 
         # Get final offsprings (matching original dimensionality)
-        adapted_offsprings = adapted_offsprings.reshape(number, self.n_features, -1)
+        adapted_offsprings = adapted_offsprings.reshape(number, subpopulation_n_features, -1)
         if self.feature_axis == 2:
             offsprings = np.swapaxes(adapted_offsprings, 2, 1)
         else:
@@ -113,17 +151,26 @@ class EvolutionaryOptimizer(ABC):
 
         return offsprings
 
-    @staticmethod
-    def get_counterfactuals(x_orig, nun_example, population):
-        population_mask = population.astype(bool)
+    def get_counterfactuals(self, x_orig, nun_example, population):
         population_size = population.shape[0]
+        # Transform mask to original dara dimensions
+        if self.multivariate_mode == 'individual':
+            population_mask = population.astype(bool)
+        elif self.multivariate_mode == 'grouped':
+            population = np.repeat(population, self.n_features, axis=self.feature_axis)
+            population_mask = population.astype(bool)
+        else:
+            raise ValueError("Multivariate mode is not supported.")
+
         # Replicate x_orig and nun_example in array
         x_orig_ext = np.tile(x_orig, (population_size, 1, 1))
         nun_ext = np.tile(nun_example, (population_size, 1, 1))
+
         # Generate counterfactuals
         counterfactuals = np.zeros(population_mask.shape)
         counterfactuals[~population_mask] = x_orig_ext[~population_mask]
         counterfactuals[population_mask] = nun_ext[population_mask]
+
         return counterfactuals
 
     def compute_fitness(self):
@@ -216,18 +263,21 @@ class EvolutionaryOptimizer(ABC):
                       'Restarting process with more activations in init')
                 iteration = 0
                 self.init_pct = self.init_pct + 0.2
-                self.init_population(self.importance_heatmap)
+                self.population = self.init_population(self.importance_heatmap)
                 fitness, class_probs = self.compute_fitness()
             else:
                 iteration += 1
 
             # Reinit if all fitness are equal
             if np.all(fitness == fitness[0]):
-                print(f'Found convergence of solutions in {iteration} iteration. Final prob {best_classification_prob}')
+                print(f'Found convergence of solutions in {iteration} iteration. ' 
+                      f'Final prob {best_classification_prob:.2f}. '
+                      'Restarting process with more activations in init.')
                 if best_classification_prob > 0.5:
                     break
                 else:
-                    self.init_population(self.importance_heatmap)
+                    self.init_pct = self.init_pct + 0.2
+                    self.population = self.init_population(self.importance_heatmap)
                     fitness, class_probs = self.compute_fitness()
 
         return best_sample, best_classification_prob
@@ -239,32 +289,12 @@ class BasicEvolutionaryOptimizer(EvolutionaryOptimizer):
                  mutation_prob=0.1,
                  init_pct=0.4, reinit=True,
                  invalid_penalization=100, alpha=0.2, beta=0.6, eta=0.2, gamma=0.25, sparsity_balancer=0.4,
-                 feature_axis=2):
+                 feature_axis=2, multivariate_mode='individual'):
         super().__init__(fitness_func, prediction_func, population_size, elite_number, offsprings_number, max_iter,
-                         init_pct, reinit,
-                         invalid_penalization, alpha, beta, eta, gamma, sparsity_balancer, feature_axis)
+                         init_pct, reinit, invalid_penalization,
+                         alpha, beta, eta, gamma, sparsity_balancer,
+                         feature_axis, multivariate_mode)
         self.mutation_prob = mutation_prob
-
-    def init_population(self, importance_heatmap=None):
-        # Init population
-        random_data = np.random.uniform(0, 1, (self.population_size,) + self.x_orig.shape)
-        if importance_heatmap is not None:
-            mix_ratio = 0.6
-            inducted_data = (mix_ratio * random_data + (1 - mix_ratio) * importance_heatmap) / 2
-        else:
-            inducted_data = random_data
-        # Calculate quantile and population
-        quantile_80 = np.quantile(inducted_data.flatten(), 1 - self.init_pct)
-        self.population = (inducted_data > quantile_80).astype(int)
-
-    def crossover(self, x1, x2):
-        # Choose a random crossover point
-        p = random.randint(0, x1.shape[0])
-
-        # Compute offspring
-        x_off_1 = np.concatenate((x1[:p], x2[p:]), axis=0)
-        x_off_2 = np.concatenate((x2[:p], x1[p:]), axis=0)
-        return x_off_1, x_off_2
 
     def mutate(self, sub_population):
         # Compute mutation values
@@ -280,33 +310,13 @@ class NSubsequenceEvolutionaryOptimizer(EvolutionaryOptimizer):
                  change_subseq_mutation_prob=0.05, add_subseq_mutation_prob=0,
                  init_pct=0.4, reinit=True,
                  invalid_penalization=100, alpha=0.2, beta=0.6, eta=0.2, gamma=0.25, sparsity_balancer=0.4,
-                 feature_axis=2):
+                 feature_axis=2, multivariate_mode='individual'):
         super().__init__(fitness_func, prediction_func, population_size, elite_number, offsprings_number, max_iter,
-                         init_pct, reinit,
-                         invalid_penalization, alpha, beta, eta, gamma, sparsity_balancer, feature_axis)
+                         init_pct, reinit, invalid_penalization,
+                         alpha, beta, eta, gamma, sparsity_balancer,
+                         feature_axis, multivariate_mode)
         self.change_subseq_mutation_prob = change_subseq_mutation_prob
         self.add_subseq_mutation_prob = add_subseq_mutation_prob
-
-    def init_population(self, importance_heatmap=None):
-        # Init population
-        random_data = np.random.uniform(0, 1, (self.population_size,) + self.x_orig.shape)
-        if importance_heatmap is not None:
-            mix_ratio = 0.6
-            inducted_data = (mix_ratio*random_data + (1-mix_ratio)*importance_heatmap) / 2
-        else:
-            inducted_data = random_data
-        # Calculate quantile and population
-        quantile_80 = np.quantile(inducted_data.flatten(), 1-self.init_pct)
-        self.population = (inducted_data > quantile_80).astype(int)
-
-    def crossover(self, x1, x2):
-        # Choose a random crossover point
-        p = random.randint(0, x1.shape[0])
-
-        # Compute offspring
-        x_off_1 = np.concatenate((x1[:p], x2[p:]), axis=0)
-        x_off_2 = np.concatenate((x2[:p], x1[p:]), axis=0)
-        return x_off_1, x_off_2
 
     @ staticmethod
     def add_subsequence_mutation(population, mutation_prob):

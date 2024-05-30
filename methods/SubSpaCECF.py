@@ -12,7 +12,8 @@ class SubSpaCECF(CounterfactualMethod):
                  population_size=100, elite_number=4, offsprings_number=96, max_iter=100,
                  change_subseq_mutation_prob=0.05, add_subseq_mutation_prob=0,
                  init_pct=0.4, reinit=True,
-                 invalid_penalization=100, alpha=0.2, beta=0.6, eta=0.2, gamma=0.25, sparsity_balancer=0.4):
+                 invalid_penalization=100, alpha=0.2, beta=0.6, eta=0.2, gamma=0.25, sparsity_balancer=0.4,
+                 multivariate_mode='individual'):
         super().__init__(model, backend)
 
         # Init Genetic Optimizer
@@ -22,7 +23,7 @@ class SubSpaCECF(CounterfactualMethod):
             change_subseq_mutation_prob, add_subseq_mutation_prob,
             init_pct, reinit,
             invalid_penalization, alpha, beta, eta, gamma, sparsity_balancer,
-            self.feature_axis
+            self.feature_axis, multivariate_mode
         )
         self.outlier_calculator = outlier_calculator
 
