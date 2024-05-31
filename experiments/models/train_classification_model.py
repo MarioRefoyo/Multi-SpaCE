@@ -8,10 +8,10 @@ from matplotlib import pyplot as plt
 from sklearn.metrics import classification_report, ConfusionMatrixDisplay, confusion_matrix
 
 from experiments.experiment_utils import local_data_loader, ucr_data_loader, label_encoder
-from experiments.models.utils_classifier import build_classification_model
+from experiments.models.utils import build_classification_model
 
 
-"""DATASETS = ["NATOPS", "UWaveGestureLibrary", "BasicMotions"]
+DATASETS = ["NATOPS", "UWaveGestureLibrary"]
 TRAIN_PARAMS = {
     'seed': 42,
     'conv_filters_kernels': [(32, 3), (64, 3), (128, 3)],
@@ -22,9 +22,9 @@ TRAIN_PARAMS = {
     'epochs': 200,
     'es_patience': 30,
     'lrs_patience': 10,
-}"""
+}
 
-DATASETS = ["BasicMotions"]
+"""DATASETS = ["BasicMotions"]
 TRAIN_PARAMS = {
     'seed': 42,
     'conv_filters_kernels': [(16, 3), (32, 3)],
@@ -35,7 +35,7 @@ TRAIN_PARAMS = {
     'epochs': 200,
     'es_patience': 30,
     'lrs_patience': 10,
-}
+}"""
 
 
 def train_experiment(dataset, params):

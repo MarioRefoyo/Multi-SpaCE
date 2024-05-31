@@ -48,7 +48,7 @@ if __name__ == "__main__":
         X_train,
         X_train,
         epochs=100,
-        batch_size=1,
+        batch_size=16,
         validation_split=0.15,
         callbacks=[
             keras.callbacks.EarlyStopping(monitor="val_loss", patience=10, mode="min")
