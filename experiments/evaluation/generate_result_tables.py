@@ -26,8 +26,10 @@ if __name__ == "__main__":
 
     # Iterate through datasets
     for dataset in DATASETS:
+        print(f'Calculating metrics for {dataset}')
         # Load all info needed to get the counterfactual
-        data_tuple, original_classes, model, outlier_calculator, nuns_idx, desired_classes = load_dataset_for_eval(dataset)
+        data_tuple, original_classes, model, outlier_calculator, nuns_idx, desired_classes = load_dataset_for_eval(
+            dataset)
         data_dict[dataset] = data_tuple
         models_dict[dataset] = model
         outlier_calculators_dict[dataset] = outlier_calculator
@@ -49,4 +51,3 @@ if __name__ == "__main__":
 
     # Store all results
     results_all_datasets_df.to_csv(f'./experiments/evaluation/results_all.csv', sep=";", index=False)
-

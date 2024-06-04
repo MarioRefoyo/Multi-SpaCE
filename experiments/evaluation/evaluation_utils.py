@@ -8,6 +8,7 @@ from tensorflow import keras
 
 from methods.outlier_calculators import AEOutlierCalculator
 from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval
+from methods.nun_finders import NUNFinder
 
 
 def get_start_end_subsequence_positions(orig_change_mask):
@@ -71,7 +72,7 @@ def load_dataset_for_eval(dataset):
     outlier_calculator = AEOutlierCalculator(ae, X_train)
 
     # Get the NUNs
-    nuns_idx = []
+    """nuns_idx = []
     desired_classes = []
     for instance_idx in range(len(X_test)):
         distances, indexes, labels = nun_retrieval(
@@ -83,7 +84,14 @@ def load_dataset_for_eval(dataset):
         nuns_idx.append(indexes[0])
         desired_classes.append(labels[0])
     nuns_idx = np.array(nuns_idx)
-    desired_classes = np.array(desired_classes)
+    desired_classes = np.array(desired_classes)"""
+    nuns_idx = []
+    desired_classes = []
+    nun_finder = NUNFinder(X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1, from_true_labels=False)
+    for instance_idx in range(len(X_test)):
+        distances, indexes, labels = nun_finder.retrieve_nun(X_test[instance_idx], y_pred_test[instance_idx])
+        nuns_idx.append(indexes[0])
+        desired_classes.append(labels[0])
 
     return data_tuple, y_pred_test, model, outlier_calculator, np.array(nuns_idx), np.array(desired_classes)
 
@@ -209,7 +217,7 @@ def calculate_method_metrics(model, outlier_calculator, X_train, X_test, nuns_id
     results["outlier_score"] = outlier_scores.tolist()
     results["increase_outlier_score"] = increase_os.tolist()
     results['subsequences'] = n_subsequences
-    results['subsequences %'] = np.array(n_subsequences) / (length / 2)
+    results['subsequences %'] = np.array(n_subsequences) / ((length * n_channels) / 2)
     results['times'] = execution_times
     results['method'] = method_name
     if order is not None:
