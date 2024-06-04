@@ -11,7 +11,7 @@ from experiments.experiment_utils import local_data_loader, ucr_data_loader, lab
 from experiments.models.utils import build_classification_model
 
 
-DATASETS = ["NATOPS", "UWaveGestureLibrary"]
+"""DATASETS = ["NATOPS", "UWaveGestureLibrary"]
 TRAIN_PARAMS = {
     'seed': 42,
     'conv_filters_kernels': [(32, 3), (64, 3), (128, 3)],
@@ -22,20 +22,33 @@ TRAIN_PARAMS = {
     'epochs': 200,
     'es_patience': 30,
     'lrs_patience': 10,
-}
+}"""
 
 """DATASETS = ["BasicMotions"]
 TRAIN_PARAMS = {
     'seed': 42,
-    'conv_filters_kernels': [(16, 3), (32, 3)],
-    'dense_units': [32],
-    'dropout': 0.25,
+    'conv_filters_kernels': [(32, 3), (64, 3)],
+    'dense_units': [64],
+    'dropout': 0.,
     'batch_size': 16,
     'learning_rate': 1e-3,
     'epochs': 200,
     'es_patience': 30,
     'lrs_patience': 10,
 }"""
+
+DATASETS = ["Epilepsy"]
+TRAIN_PARAMS = {
+    'seed': 42,
+    'conv_filters_kernels': [(16, 7), (32, 7), (64, 3)],
+    'dense_units': [128],
+    'dropout': 0.2,
+    'batch_size': 32,
+    'learning_rate': 1e-3,
+    'epochs': 200,
+    'es_patience': 30,
+    'lrs_patience': 10,
+}
 
 
 def train_experiment(dataset, params):
@@ -59,9 +72,6 @@ def train_experiment(dataset, params):
     # Define model architecture
     input_shape = X_train.shape[1:]
     classes = np.unique(y_train)
-    if 0 not in classes:
-        y_train = y_train-1
-        y_test = y_test-1
     n_classes = len(classes)
     model = build_classification_model(
         input_shape, n_classes,

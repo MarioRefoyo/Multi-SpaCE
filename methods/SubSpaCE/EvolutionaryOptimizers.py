@@ -31,7 +31,6 @@ class EvolutionaryOptimizer(ABC):
         self.prediction_func = prediction_func
         self.max_iter = max_iter
         self.init_pct = init_pct
-        self.fitness_evolution = []
 
         self.feature_axis = feature_axis
         self.multivariate_mode = multivariate_mode
@@ -68,8 +67,8 @@ class EvolutionaryOptimizer(ABC):
             raise ValueError("Multivariate mode is not supported.")
 
         # Calculate quantile and population
-        quantile_80 = np.quantile(inducted_data.flatten(), 1 - self.init_pct)
-        population = (inducted_data > quantile_80).astype(int)
+        quantile = np.quantile(inducted_data.flatten(), 1 - self.init_pct)
+        population = (inducted_data > quantile).astype(int)
 
         return population
 
@@ -80,6 +79,7 @@ class EvolutionaryOptimizer(ABC):
         self.model = model
         self.outlier_calculator = outlier_calculator
         self.importance_heatmap = importance_heatmap
+        self.fitness_evolution = []
 
         # Get dimensionality attributes
         if self.feature_axis == 2:
@@ -260,7 +260,7 @@ class EvolutionaryOptimizer(ABC):
             # Handle while loop updates
             if self.reinit and (iteration == 50) and (self.init_pct < 1) and (fitness[i] < -self.invalid_penalization+1):
                 print('Failed to find a valid counterfactual in 50 iterations. '
-                      'Restarting process with more activations in init')
+                      f'Restarting process with more activations in init. Current init_pct: {self.init_pct:.2f}')
                 iteration = 0
                 self.init_pct = self.init_pct + 0.2
                 self.population = self.init_population(self.importance_heatmap)
@@ -270,12 +270,13 @@ class EvolutionaryOptimizer(ABC):
 
             # Reinit if all fitness are equal
             if np.all(fitness == fitness[0]):
-                print(f'Found convergence of solutions in {iteration} iteration. ' 
-                      f'Final prob {best_classification_prob:.2f}. '
-                      'Restarting process with more activations in init.')
+                print(f'Found convergence of solutions in {iteration} iteration.')
                 if best_classification_prob > 0.5:
                     break
                 else:
+                    print(f'Final prob {best_classification_prob:.2f}. '
+                          'Restarting process with more activations in init.')
+                    iteration = 0
                     self.init_pct = self.init_pct + 0.2
                     self.population = self.init_population(self.importance_heatmap)
                     fitness, class_probs = self.compute_fitness()

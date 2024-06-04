@@ -7,13 +7,14 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from tensorflow import keras
+from sklearn.metrics import classification_report
 
 from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, store_partial_cfs, ucr_data_loader
 from experiments.results.results_concatenator import concatenate_result_files
 
 from methods.SubSpaCECF import SubSpaCECF
 
-DATASETS = ['NATOPS']
+DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
@@ -21,13 +22,13 @@ POOL_SIZE = 10
 
 
 experiments = {
-    'subspace_individual_v3': {
+    'subspace_grouped': {
         'params': {
-            'population_size': 200,
-            'change_subseq_mutation_prob': 0.1,
-            'elite_number': 8,
-            'offsprings_number': 192,
-            'max_iter': 150,
+            'population_size': 100,
+            'change_subseq_mutation_prob': 0.05,
+            'elite_number': 4,
+            'offsprings_number': 96,
+            'max_iter': 100,
             'init_pct': 0.2,
             'reinit': True,
             'alpha': 0.2,
@@ -35,10 +36,10 @@ experiments = {
             'eta': 0.2,
             'gamma': 0.25,
             'sparsity_balancer': 0.4,
-            'multivariate_mode': 'individual',
+            'multivariate_mode': 'grouped',
         },
     },
-    'subspace_grouped_v3': {
+    'subspace_v2_grouped': {
         'params': {
             'population_size': 200,
             'change_subseq_mutation_prob': 0.1,
@@ -53,6 +54,40 @@ experiments = {
             'gamma': 0.25,
             'sparsity_balancer': 0.4,
             'multivariate_mode': 'grouped',
+        },
+    },
+    'subspace_individual': {
+        'params': {
+            'population_size': 100,
+            'change_subseq_mutation_prob': 0.05,
+            'elite_number': 4,
+            'offsprings_number': 96,
+            'max_iter': 100,
+            'init_pct': 0.2,
+            'reinit': True,
+            'alpha': 0.2,
+            'beta': 0.6,
+            'eta': 0.2,
+            'gamma': 0.25,
+            'sparsity_balancer': 0.4,
+            'multivariate_mode': 'individual',
+        },
+    },
+    'subspace_v2_individual': {
+        'params': {
+            'population_size': 200,
+            'change_subseq_mutation_prob': 0.1,
+            'elite_number': 8,
+            'offsprings_number': 192,
+            'max_iter': 150,
+            'init_pct': 0.2,
+            'reinit': True,
+            'alpha': 0.2,
+            'beta': 0.6,
+            'eta': 0.2,
+            'gamma': 0.25,
+            'sparsity_balancer': 0.4,
+            'multivariate_mode': 'individual',
         },
     },
 }
@@ -99,16 +134,24 @@ def experiment_dataset(dataset, exp_name, params):
     # Load model
     model = keras.models.load_model(f'models/{dataset}/{dataset}_best_model.hdf5')
 
-    # Predict on x test
-    y_pred_logits = model.predict(X_test, verbose=0)
-    y_pred = np.argmax(y_pred_logits, axis=1)
+    # Predict
+    y_pred_test_logits = model.predict(X_test, verbose=0)
+    y_pred_train_logits = model.predict(X_train, verbose=0)
+    y_pred_test = np.argmax(y_pred_test_logits, axis=1)
+    y_pred_train = np.argmax(y_pred_train_logits, axis=1)
+    # Classification report
+    print(classification_report(y_test, y_pred_test))
 
     # Get the NUNs
     nuns_idx = []
     desired_classes = []
     for instance_idx in range(len(X_test)):
-        distances, indexes, labels = nun_retrieval(X_test[instance_idx], y_pred[instance_idx],
-                                                   'euclidean', 1, X_train, y_train)
+        distances, indexes, labels = nun_retrieval(
+            X_test[instance_idx], y_pred_test[instance_idx],
+            'euclidean', 1,
+            X_train, y_train, y_pred_train.reshape(-1, 1),
+            from_true_labels=False
+        )
         nuns_idx.append(indexes[0])
         desired_classes.append(labels[0])
     nuns_idx = np.array(nuns_idx)

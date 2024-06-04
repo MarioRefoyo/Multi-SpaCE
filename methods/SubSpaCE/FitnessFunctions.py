@@ -6,6 +6,7 @@ def fitness_function_final(ms, predicted_probs, desired_class, outlier_scores,
     # Sparsity calculator
     ones_pct = ms.sum(axis=(1, 2)) / (ms.shape[1] * ms.shape[2])
     # subsequences = np.count_nonzero(np.diff(ms, prepend=0) == 1, axis=1)
+    # Working in Sub-SpaCE for univariate time series: subsequences = np.count_nonzero(np.diff(ms, prepend=0, axis=1) == 1, axis=(1, 2))
     subsequences = np.count_nonzero(np.diff(ms, prepend=0, axis=1) == 1, axis=(1, 2))
     subsequences_pct = subsequences / ((ms.shape[1] // 2) * ms.shape[2])
     sparsity_term = sparsity_balancer * ones_pct + (1 - sparsity_balancer) * subsequences_pct ** gamma
