@@ -13,8 +13,10 @@ from experiments.experiment_utils import local_data_loader, label_encoder, nun_r
 from experiments.results.results_concatenator import concatenate_result_files
 
 from methods.SubSpaCECF import SubSpaCECF
+from methods.nun_finders import NUNFinder
 
-DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
+# DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
+DATASETS = ['BasicMotions']
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
@@ -143,19 +145,11 @@ def experiment_dataset(dataset, exp_name, params):
     print(classification_report(y_test, y_pred_test))
 
     # Get the NUNs
-    nuns_idx = []
-    desired_classes = []
-    for instance_idx in range(len(X_test)):
-        distances, indexes, labels = nun_retrieval(
-            X_test[instance_idx], y_pred_test[instance_idx],
-            'euclidean', 1,
-            X_train, y_train, y_pred_train.reshape(-1, 1),
-            from_true_labels=False
-        )
-        nuns_idx.append(indexes[0])
-        desired_classes.append(labels[0])
-    nuns_idx = np.array(nuns_idx)
-    desired_classes = np.array(desired_classes)
+    nun_finder = NUNFinder(
+        X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
+        from_true_labels=False, independent_channels=True, backend='tf'
+    )
+    nuns, desired_classes, distances = nun_finder.retrieve_nuns(X_test, y_pred_test)
 
     # START COUNTERFACTUAL GENERATION
     if MULTIPROCESSING:
@@ -164,7 +158,7 @@ def experiment_dataset(dataset, exp_name, params):
         for i in range(I_START, len(X_test), THREAD_SAMPLES):
             # Init optimizer
             x_orig_samples = X_test[i:i + THREAD_SAMPLES]
-            nun_examples = X_train[nuns_idx[i:i + THREAD_SAMPLES]]
+            nun_examples = nuns[i:i + THREAD_SAMPLES]
             desired_targets = desired_classes[i:i + THREAD_SAMPLES]
 
             sample_dict = {

@@ -85,20 +85,18 @@ def load_dataset_for_eval(dataset):
         desired_classes.append(labels[0])
     nuns_idx = np.array(nuns_idx)
     desired_classes = np.array(desired_classes)"""
-    nuns_idx = []
-    desired_classes = []
-    nun_finder = NUNFinder(X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1, from_true_labels=False,
-                           independent_channels=True, backend='tf')
-    for instance_idx in range(len(X_test)):
-        distances, indexes, labels = nun_finder.retrieve_nun(X_test[instance_idx], y_pred_test[instance_idx])
-        nuns_idx.append(indexes[0])
-        desired_classes.append(labels[0])
 
-    return data_tuple, y_pred_test, model, outlier_calculator, np.array(nuns_idx), np.array(desired_classes)
+    nun_finder = NUNFinder(
+        X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
+        from_true_labels=False, independent_channels=True, backend='tf'
+    )
+    nuns, desired_classes, distances = nun_finder.retrieve_nuns(X_test, y_pred_test)
+
+    return data_tuple, y_pred_test, model, outlier_calculator, nuns, desired_classes
 
 
 def calculate_metrics_for_dataset(dataset, counterfactual_methods,
-                                  data_tuple, original_classes, model, outlier_calculator, nuns_idx):
+                                  data_tuple, original_classes, model, outlier_calculator, nuns):
     results_df = pd.DataFrame()
     cf_solution_files = [fname for fname in os.listdir(f'./experiments/results/{dataset}/')]
     desired_cf_solution_files = [cf_sol_file for cf_sol_file in cf_solution_files if
@@ -114,7 +112,7 @@ def calculate_metrics_for_dataset(dataset, counterfactual_methods,
         X_train, y_train, X_test, y_test = data_tuple
         method_name = method_file_name.replace('.pickle', '')
         method_metrics = calculate_method_metrics(model, outlier_calculator,
-                                                  X_train, X_test, nuns_idx,
+                                                  X_train, X_test, nuns,
                                                   method_cfs, original_classes, method_name, order=i + 1)
         results_df = pd.concat([results_df, method_metrics])
         method_cfs_dataset[method_name] = method_cfs
@@ -132,7 +130,7 @@ def calculate_metrics_for_dataset(dataset, counterfactual_methods,
     return mean_std_df, results_df, method_cfs_dataset
 
 
-def calculate_method_metrics(model, outlier_calculator, X_train, X_test, nuns_idx, solutions_in, original_classes,
+def calculate_method_metrics(model, outlier_calculator, X_train, X_test, nuns, solutions_in, original_classes,
                              method_name, order=None):
     # Get the results and separate them in counterfactuals and execution times
     solutions = copy.deepcopy(solutions_in)
@@ -169,7 +167,7 @@ def calculate_method_metrics(model, outlier_calculator, X_train, X_test, nuns_id
             # Calculate l0
             # change_mask = (X_test[i] != counterfactuals[i]).astype(int)
             # print(X_test[i].shape, X_train[nuns_idx[i]].shape, counterfactuals[i].shape)
-            change_mask = calculate_change_mask(X_test[i], X_train[nuns_idx[i]], counterfactuals[i], verbose=0)
+            change_mask = calculate_change_mask(X_test[i], nuns[i], counterfactuals[i], verbose=0)
             nchanges.append(change_mask.sum())
 
             # Calculate l1
@@ -197,7 +195,7 @@ def calculate_method_metrics(model, outlier_calculator, X_train, X_test, nuns_id
     # Increase in outlier score
     outlier_scores = outlier_calculator.get_outlier_scores(np.array(counterfactuals).reshape(-1, length, n_channels))
     outlier_scores_orig = outlier_calculator.get_outlier_scores(X_test)
-    outlier_scores_nuns = outlier_calculator.get_outlier_scores(X_train[nuns_idx])
+    outlier_scores_nuns = outlier_calculator.get_outlier_scores(nuns)
     increase_os = outlier_scores - (outlier_scores_orig + outlier_scores_nuns) / 2
     increase_os[increase_os < 0] = 0
     # Put to nan all the non valid cfs
