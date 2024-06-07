@@ -4,12 +4,21 @@ from tslearn.neighbors import KNeighborsTimeSeries
 
 
 class NUNFinder:
-    def __init__(self, X_train, y_train, y_pred, distance, n_neighbors, from_true_labels):
+    def __init__(self, X_train, y_train, y_pred, distance, n_neighbors, from_true_labels,
+                 independent_channels, backend):
         self.X_train = X_train
         self.y_train = y_train
         self.y_pred = y_pred
         self.distance = distance
         self.n_neighbors = n_neighbors
+        self.independent_channels = independent_channels
+        self.backend = backend
+        if backend == 'tf':
+            self.feature_axis = 2
+            self.n_channels = X_train.shape[2]
+            self.ts_length = X_train.shape[1]
+        else:
+            raise ValueError('Backend not supported')
 
         # Get df with index from true training and predicted labels
         df_init = pd.DataFrame(y_train, columns=['true_label'])
@@ -27,9 +36,22 @@ class NUNFinder:
         classes_knn_dict = {}
         for c in classes:
             knn = KNeighborsTimeSeries(n_neighbors=n_neighbors, metric=distance)
-            knn.fit(X_train[list(self.df_index[self.df_index[label_name] != c].index.values)])
+            diff_class_idxs = list(self.df_index[self.df_index[label_name] != c].index.values)
+            knn.fit(X_train[diff_class_idxs])
             classes_knn_dict[c] = knn
         self.classes_knn_dict = classes_knn_dict
+
+        # Train a knn per channel and class
+        classes_channels_knn_dict = {}
+        for c in classes:
+            feature_knn_dict = {}
+            for feature in range(self.n_channels):
+                knn = KNeighborsTimeSeries(n_neighbors=n_neighbors, metric=distance)
+                diff_class_idxs = list(self.df_index[self.df_index[label_name] != c].index.values)
+                knn.fit(X_train[diff_class_idxs, feature])
+                feature_knn_dict[feature] = knn
+            classes_channels_knn_dict[c] = feature_knn_dict
+        self.classes_channels_knn_dict = classes_channels_knn_dict
 
     def retrieve_nun(self, x_orig, predicted_label):
         # Get the closes neighbor on the knn training data

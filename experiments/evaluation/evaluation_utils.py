@@ -87,7 +87,8 @@ def load_dataset_for_eval(dataset):
     desired_classes = np.array(desired_classes)"""
     nuns_idx = []
     desired_classes = []
-    nun_finder = NUNFinder(X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1, from_true_labels=False)
+    nun_finder = NUNFinder(X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1, from_true_labels=False,
+                           independent_channels=True, backend='tf')
     for instance_idx in range(len(X_test)):
         distances, indexes, labels = nun_finder.retrieve_nun(X_test[instance_idx], y_pred_test[instance_idx])
         nuns_idx.append(indexes[0])
