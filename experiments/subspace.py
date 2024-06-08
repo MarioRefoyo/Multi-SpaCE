@@ -15,8 +15,8 @@ from experiments.results.results_concatenator import concatenate_result_files
 from methods.SubSpaCECF import SubSpaCECF
 from methods.nun_finders import NUNFinder
 
-# DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
-DATASETS = ['BasicMotions']
+DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
+# DATASETS = ['UWaveGestureLibrary', 'NATOPS']
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
@@ -24,7 +24,10 @@ POOL_SIZE = 10
 
 
 experiments = {
-    'subspace_grouped': {
+    'subspace_gknn_gch': {
+        "general_params": {
+            "independent_channels": False
+        },
         'params': {
             'population_size': 100,
             'change_subseq_mutation_prob': 0.05,
@@ -41,47 +44,16 @@ experiments = {
             'multivariate_mode': 'grouped',
         },
     },
-    'subspace_v2_grouped': {
-        'params': {
-            'population_size': 200,
-            'change_subseq_mutation_prob': 0.1,
-            'elite_number': 8,
-            'offsprings_number': 192,
-            'max_iter': 150,
-            'init_pct': 0.2,
-            'reinit': True,
-            'alpha': 0.2,
-            'beta': 0.6,
-            'eta': 0.2,
-            'gamma': 0.25,
-            'sparsity_balancer': 0.4,
-            'multivariate_mode': 'grouped',
+    'subspace_gknn_ich': {
+        "general_params": {
+            "independent_channels": False
         },
-    },
-    'subspace_individual': {
         'params': {
             'population_size': 100,
             'change_subseq_mutation_prob': 0.05,
             'elite_number': 4,
             'offsprings_number': 96,
             'max_iter': 100,
-            'init_pct': 0.2,
-            'reinit': True,
-            'alpha': 0.2,
-            'beta': 0.6,
-            'eta': 0.2,
-            'gamma': 0.25,
-            'sparsity_balancer': 0.4,
-            'multivariate_mode': 'individual',
-        },
-    },
-    'subspace_v2_individual': {
-        'params': {
-            'population_size': 200,
-            'change_subseq_mutation_prob': 0.1,
-            'elite_number': 8,
-            'offsprings_number': 192,
-            'max_iter': 150,
             'init_pct': 0.2,
             'reinit': True,
             'alpha': 0.2,
@@ -129,7 +101,7 @@ def get_counterfactual_worker(sample_dict):
     return 1
 
 
-def experiment_dataset(dataset, exp_name, params):
+def experiment_dataset(dataset, exp_name, general_params, params):
     X_train, y_train, X_test, y_test = local_data_loader(str(dataset), data_path="./data")
     y_train, y_test = label_encoder(y_train, y_test)
 
@@ -147,7 +119,7 @@ def experiment_dataset(dataset, exp_name, params):
     # Get the NUNs
     nun_finder = NUNFinder(
         X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
-        from_true_labels=False, independent_channels=True, backend='tf'
+        from_true_labels=False, independent_channels=general_params["independent_channels"], backend='tf'
     )
     nuns, desired_classes, distances = nun_finder.retrieve_nuns(X_test, y_pred_test)
 
@@ -188,6 +160,7 @@ if __name__ == "__main__":
             experiment_dataset(
                 dataset,
                 experiment_name,
+                experiment_params["general_params"],
                 experiment_params["params"]
             )
     print('Finished')

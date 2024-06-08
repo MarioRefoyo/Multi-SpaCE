@@ -1,3 +1,4 @@
+import copy
 from abc import ABC, abstractmethod
 import random
 import numpy as np
@@ -30,7 +31,7 @@ class EvolutionaryOptimizer(ABC):
 
         self.prediction_func = prediction_func
         self.max_iter = max_iter
-        self.init_pct = init_pct
+        self.original_init_pct = init_pct
 
         self.feature_axis = feature_axis
         self.multivariate_mode = multivariate_mode
@@ -73,6 +74,7 @@ class EvolutionaryOptimizer(ABC):
         return population
 
     def init(self, x_orig, nun_example, desired_class, model, outlier_calculator=None, importance_heatmap=None):
+        self.init_pct = copy.deepcopy(self.original_init_pct)
         self.x_orig = x_orig
         self.nun_example = nun_example
         self.desired_class = desired_class
@@ -263,7 +265,11 @@ class EvolutionaryOptimizer(ABC):
                       f'Restarting process with more activations in init. Current init_pct: {self.init_pct:.2f}')
                 iteration = 0
                 self.init_pct = self.init_pct + 0.2
-                self.population = self.init_population(self.importance_heatmap)
+                try:
+                    self.population = self.init_population(self.importance_heatmap)
+                except Exception:
+                    print("Error in initialization. Ending cf search.")
+                    return None, None
                 fitness, class_probs = self.compute_fitness()
             else:
                 iteration += 1
@@ -278,7 +284,11 @@ class EvolutionaryOptimizer(ABC):
                           'Restarting process with more activations in init.')
                     iteration = 0
                     self.init_pct = self.init_pct + 0.2
-                    self.population = self.init_population(self.importance_heatmap)
+                    try:
+                        self.population = self.init_population(self.importance_heatmap)
+                    except Exception:
+                        print("Error in initialization. Ending cf search.")
+                        return None, None
                     fitness, class_probs = self.compute_fitness()
 
         return best_sample, best_classification_prob

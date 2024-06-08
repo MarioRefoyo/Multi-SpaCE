@@ -72,31 +72,28 @@ def load_dataset_for_eval(dataset):
     outlier_calculator = AEOutlierCalculator(ae, X_train)
 
     # Get the NUNs
-    """nuns_idx = []
-    desired_classes = []
-    for instance_idx in range(len(X_test)):
-        distances, indexes, labels = nun_retrieval(
-            X_test[instance_idx], y_pred_test[instance_idx],
-            'euclidean', 1,
-            X_train, y_train, y_pred_train.reshape(-1, 1),
-            from_true_labels=False
-        )
-        nuns_idx.append(indexes[0])
-        desired_classes.append(labels[0])
-    nuns_idx = np.array(nuns_idx)
-    desired_classes = np.array(desired_classes)"""
-
+    possible_nuns = {}
+    # Get nuns with global knn
+    nun_finder = NUNFinder(
+        X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
+        from_true_labels=False, independent_channels=False, backend='tf'
+    )
+    gknn_nuns, desired_classes, _ = nun_finder.retrieve_nuns(X_test, y_pred_test)
+    possible_nuns['gknn'] = gknn_nuns
+    # Get nuns with individual knn for channels
     nun_finder = NUNFinder(
         X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
         from_true_labels=False, independent_channels=True, backend='tf'
     )
-    nuns, desired_classes, distances = nun_finder.retrieve_nuns(X_test, y_pred_test)
+    iknn_nuns, desired_classes, _ = nun_finder.retrieve_nuns(X_test, y_pred_test)
+    possible_nuns['iknn'] = iknn_nuns
+    # NOTE: DESIRED CLASSES ARE ALWAYS THE SAME
 
-    return data_tuple, y_pred_test, model, outlier_calculator, nuns, desired_classes
+    return data_tuple, y_pred_test, model, outlier_calculator, possible_nuns, desired_classes
 
 
 def calculate_metrics_for_dataset(dataset, counterfactual_methods,
-                                  data_tuple, original_classes, model, outlier_calculator, nuns):
+                                  data_tuple, original_classes, model, outlier_calculator, possible_nuns):
     results_df = pd.DataFrame()
     cf_solution_files = [fname for fname in os.listdir(f'./experiments/results/{dataset}/')]
     desired_cf_solution_files = [cf_sol_file for cf_sol_file in cf_solution_files if
@@ -107,7 +104,13 @@ def calculate_metrics_for_dataset(dataset, counterfactual_methods,
         with open(f'./experiments/results/{dataset}/{method_file_name}', 'rb') as f:
             print(method_file_name)
             method_cfs = pickle.load(f)
-
+        # Get nuns used by the method depending on the name
+        if "gknn" in method_file_name:
+            nuns = possible_nuns["gknn"]
+        elif "iknn" in method_file_name:
+            nuns = possible_nuns["iknn"]
+        else:
+            raise ValueError('Not detected NUN finding procedure in name. Method name must contain "gknn" or "iknn"')
         # Calculate metrics
         X_train, y_train, X_test, y_test = data_tuple
         method_name = method_file_name.replace('.pickle', '')
