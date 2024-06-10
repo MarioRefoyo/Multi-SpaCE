@@ -24,7 +24,7 @@ POOL_SIZE = 10
 
 
 experiments = {
-    'subspace_gknn_gch': {
+    'subspace_gamma025_gknn_gch': {
         "general_params": {
             "independent_channels": False
         },
@@ -40,11 +40,11 @@ experiments = {
             'beta': 0.6,
             'eta': 0.2,
             'gamma': 0.25,
-            'sparsity_balancer': 0.4,
+            'sparsity_balancer': 0.25,
             'multivariate_mode': 'grouped',
         },
     },
-    'subspace_gknn_ich': {
+    'subspace_gamma025_gknn_ich': {
         "general_params": {
             "independent_channels": False
         },
@@ -60,7 +60,47 @@ experiments = {
             'beta': 0.6,
             'eta': 0.2,
             'gamma': 0.25,
-            'sparsity_balancer': 0.4,
+            'sparsity_balancer': 0.25,
+            'multivariate_mode': 'individual',
+        },
+    },
+    'subspace_gamma025_iknn_gch': {
+        "general_params": {
+            "independent_channels": True
+        },
+        'params': {
+            'population_size': 100,
+            'change_subseq_mutation_prob': 0.05,
+            'elite_number': 4,
+            'offsprings_number': 96,
+            'max_iter': 100,
+            'init_pct': 0.2,
+            'reinit': True,
+            'alpha': 0.2,
+            'beta': 0.6,
+            'eta': 0.2,
+            'gamma': 0.25,
+            'sparsity_balancer': 0.25,
+            'multivariate_mode': 'grouped',
+        },
+    },
+    'subspace_gamma025_iknn_ich': {
+        "general_params": {
+            "independent_channels": True
+        },
+        'params': {
+            'population_size': 100,
+            'change_subseq_mutation_prob': 0.05,
+            'elite_number': 4,
+            'offsprings_number': 96,
+            'max_iter': 100,
+            'init_pct': 0.2,
+            'reinit': True,
+            'alpha': 0.2,
+            'beta': 0.6,
+            'eta': 0.2,
+            'gamma': 0.25,
+            'sparsity_balancer': 0.25,
             'multivariate_mode': 'individual',
         },
     },
