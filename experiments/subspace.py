@@ -1,15 +1,18 @@
 import os
 import copy
+import random
 import pickle
 import sys
+import json
 from multiprocessing import Pool
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
-from tensorflow import keras
+import tensorflow as tf
 from sklearn.metrics import classification_report
 
-from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, store_partial_cfs, ucr_data_loader
+from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, store_partial_cfs, \
+    ucr_data_loader, load_parameters_from_json, generate_settings_combinations, get_subsample
 from experiments.results.results_concatenator import concatenate_result_files
 
 from methods.SubSpaCECF import SubSpaCECF
@@ -17,94 +20,11 @@ from methods.nun_finders import NUNFinder
 
 DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
 # DATASETS = ['UWaveGestureLibrary', 'NATOPS']
+PARAMS_PATH = 'experiments/params/subspace_basic_low_gamma.json'
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
 POOL_SIZE = 10
-
-
-experiments = {
-    'subspace_gamma025_gknn_gch': {
-        "general_params": {
-            "independent_channels": False
-        },
-        'params': {
-            'population_size': 100,
-            'change_subseq_mutation_prob': 0.05,
-            'elite_number': 4,
-            'offsprings_number': 96,
-            'max_iter': 100,
-            'init_pct': 0.2,
-            'reinit': True,
-            'alpha': 0.2,
-            'beta': 0.6,
-            'eta': 0.2,
-            'gamma': 0.25,
-            'sparsity_balancer': 0.25,
-            'multivariate_mode': 'grouped',
-        },
-    },
-    'subspace_gamma025_gknn_ich': {
-        "general_params": {
-            "independent_channels": False
-        },
-        'params': {
-            'population_size': 100,
-            'change_subseq_mutation_prob': 0.05,
-            'elite_number': 4,
-            'offsprings_number': 96,
-            'max_iter': 100,
-            'init_pct': 0.2,
-            'reinit': True,
-            'alpha': 0.2,
-            'beta': 0.6,
-            'eta': 0.2,
-            'gamma': 0.25,
-            'sparsity_balancer': 0.25,
-            'multivariate_mode': 'individual',
-        },
-    },
-    'subspace_gamma025_iknn_gch': {
-        "general_params": {
-            "independent_channels": True
-        },
-        'params': {
-            'population_size': 100,
-            'change_subseq_mutation_prob': 0.05,
-            'elite_number': 4,
-            'offsprings_number': 96,
-            'max_iter': 100,
-            'init_pct': 0.2,
-            'reinit': True,
-            'alpha': 0.2,
-            'beta': 0.6,
-            'eta': 0.2,
-            'gamma': 0.25,
-            'sparsity_balancer': 0.25,
-            'multivariate_mode': 'grouped',
-        },
-    },
-    'subspace_gamma025_iknn_ich': {
-        "general_params": {
-            "independent_channels": True
-        },
-        'params': {
-            'population_size': 100,
-            'change_subseq_mutation_prob': 0.05,
-            'elite_number': 4,
-            'offsprings_number': 96,
-            'max_iter': 100,
-            'init_pct': 0.2,
-            'reinit': True,
-            'alpha': 0.2,
-            'beta': 0.6,
-            'eta': 0.2,
-            'gamma': 0.25,
-            'sparsity_balancer': 0.25,
-            'multivariate_mode': 'individual',
-        },
-    },
-}
 
 
 def get_counterfactual_worker(sample_dict):
@@ -116,15 +36,31 @@ def get_counterfactual_worker(sample_dict):
     nun_examples_worker = sample_dict["nun_examples"]
     desired_targets_worker = sample_dict["desired_targets"]
 
+    # Set seed in thread. ToDo: is it really necessary?
+    if params["seed"] is not None:
+        np.random.seed(params["seed"])
+        tf.random.set_seed(params["seed"])
+        random.seed(params["seed"])
+
     # Get model
-    model_worker = keras.models.load_model(f'models/{dataset}/{dataset}_best_model.hdf5')
+    model_worker = tf.keras.models.load_model(f'experiments/models/{dataset}/{dataset}_best_model.hdf5')
 
     # Get outlier calculator
-    with open(f'models/{dataset}/{dataset}_outlier_calculator.pickle', 'rb') as f:
+    with open(f'experiments/models/{dataset}/{dataset}_outlier_calculator.pickle', 'rb') as f:
         outlier_calculator_worker = pickle.load(f)
 
     # Instantiate the Counterfactual Explanation method
-    cf_explainer = SubSpaCECF(model_worker, 'tf', outlier_calculator_worker, **params)
+    cf_explainer = SubSpaCECF(
+        model_worker, 'tf', outlier_calculator_worker,
+        population_size=params["population_size"], elite_number=params["elite_number"],
+        offsprings_number=params["offsprings_number"], max_iter=params["max_iter"],
+        change_subseq_mutation_prob=params["change_subseq_mutation_prob"],
+        add_subseq_mutation_prob=params["add_subseq_mutation_prob"],
+        init_pct=params["init_pct"], reinit=params["reinit"],
+        invalid_penalization=params["invalid_penalization"], alpha=params["alpha"], beta=params["beta"],
+        eta=params["eta"], gamma=params["gamma"], sparsity_balancer=params["sparsity_balancer"],
+        multivariate_mode=params["multivariate_mode"]
+    )
 
     # Generate counterfactuals
     results = []
@@ -141,12 +77,24 @@ def get_counterfactual_worker(sample_dict):
     return 1
 
 
-def experiment_dataset(dataset, exp_name, general_params, params):
-    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), data_path="./data")
+def experiment_dataset(dataset, exp_name, params):
+    # Set seed
+    if params["seed"] is not None:
+        np.random.seed(params["seed"])
+        random.seed(params["seed"])
+
+    # Load data
+    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), data_path="./experiments/data")
     y_train, y_test = label_encoder(y_train, y_test)
 
+    # Get a subset of testing data if specified
+    if (params["subset"]) & (len(y_test) > params["subset_number"]):
+        X_test, y_test, subset_idx = get_subsample(X_test, y_test, params["subset_number"], params["seed"])
+    else:
+        subset_idx = np.arange(len(X_test))
+
     # Load model
-    model = keras.models.load_model(f'models/{dataset}/{dataset}_best_model.hdf5')
+    model = tf.keras.models.load_model(f'experiments/models/{dataset}/{dataset}_best_model.hdf5')
 
     # Predict
     y_pred_test_logits = model.predict(X_test, verbose=0)
@@ -159,7 +107,7 @@ def experiment_dataset(dataset, exp_name, general_params, params):
     # Get the NUNs
     nun_finder = NUNFinder(
         X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
-        from_true_labels=False, independent_channels=general_params["independent_channels"], backend='tf'
+        from_true_labels=False, independent_channels=params["independent_channels"], backend='tf'
     )
     nuns, desired_classes, distances = nun_finder.retrieve_nuns(X_test, y_pred_test)
 
@@ -192,15 +140,22 @@ def experiment_dataset(dataset, exp_name, general_params, params):
     # Concatenate the results
     concatenate_result_files(dataset, exp_name)
 
+    # Store experiment metadata
+    params["X_test_indexes"] = subset_idx.tolist()
+    with open(f'./experiments/results/{dataset}/{exp_name}/params.json', 'w') as fp:
+        json.dump(params, fp, sort_keys=True)
+
 
 if __name__ == "__main__":
-    for experiment_name, experiment_params in experiments.items():
+    # Load parameters
+    all_params = load_parameters_from_json(PARAMS_PATH)
+    params_combinations = generate_settings_combinations(all_params)
+    for experiment_name, experiment_params in params_combinations.items():
         for dataset in DATASETS:
             print(f'Starting experiment {experiment_name} for dataset {dataset}...')
             experiment_dataset(
                 dataset,
                 experiment_name,
-                experiment_params["general_params"],
-                experiment_params["params"]
+                experiment_params
             )
     print('Finished')

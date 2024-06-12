@@ -55,7 +55,7 @@ def train_experiment(dataset, params):
     # Set seed
     np.random.seed(params["seed"])
     tf.random.set_seed(params["seed"])
-    random.seed(2)
+    random.seed(params["seed"])
 
     # Create model folder if it does not exist
     if not os.path.isdir(f"./experiments/models/{dataset}"):

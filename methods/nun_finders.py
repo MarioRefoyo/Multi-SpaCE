@@ -41,8 +41,10 @@ class NUNFinder:
         classes_knn_dict = {}
         for c in classes:
             knn = KNeighborsTimeSeries(n_neighbors=n_neighbors, metric=distance)
+
             diff_class_index = self.df_index[self.df_index[label_name] != c]
             knn.fit(self.X_train[diff_class_index.index.values])
+
             diff_class_index_dict[c] = diff_class_index
             classes_knn_dict[c] = knn
         self.diff_class_index_dict = diff_class_index_dict
@@ -50,52 +52,62 @@ class NUNFinder:
 
         # Train a knn per channel and class if independent channels flag is active
         if independent_channels:
+            same_class_index_dict = {}
             classes_feature_knn_dict = {}
             for c in classes:
                 diff_class_index = self.diff_class_index_dict[c]
                 feature_knn_dict = {}
                 for feature in range(self.n_channels):
                     knn = KNeighborsTimeSeries(n_neighbors=n_neighbors, metric=distance)
-                    knn.fit(self.X_train[diff_class_index.index.values, :, feature])
+
+                    same_class_index = self.df_index[self.df_index[label_name] == c]
+                    knn.fit(self.X_train[same_class_index.index.values, :, feature])
+
+                    same_class_index_dict[c] = same_class_index
                     feature_knn_dict[feature] = knn
                 classes_feature_knn_dict[c] = feature_knn_dict
+            self.same_class_index_dict = same_class_index_dict
             self.classes_feature_knn_dict = classes_feature_knn_dict
 
-    def get_nn_ind(self, knn, x_orig, original_label):
+    def get_nn_ind(self, knn, x_orig, knn_training_index_df):
         # Get the closes neighbor on the knn training data with general KNN!
         # The idea is to obtain the label of the closest example.
         # Then use that label to find the closest channel of that class if needed
         dist, ind = knn.kneighbors(
             np.expand_dims(x_orig, axis=0), return_distance=True
         )
+        dist, ind = dist[0], ind[0]
         # Transform the index to the original index in the complete X_train
-        index = self.diff_class_index_dict[original_label].index[ind[0][:]]
+        index = knn_training_index_df.index[ind]
         # Get label of the closest neighbor
-        label = self.df_index[self.df_index.index.isin(index.tolist())].values[0][0]
+        label = self.df_index[self.df_index.index.isin(index.tolist())].values[0]
 
-        return index[0], label, dist[0]
+        return index[0], label[0], dist[0]
 
     def retrieve_single_nun(self, x_orig, original_label):
-        global_nun_index, label, global_dist = self.get_nn_ind(
-            self.classes_knn_dict[original_label], x_orig, original_label
+        global_nun_index, nn_label, global_dist = self.get_nn_ind(
+            self.classes_knn_dict[original_label], x_orig, self.diff_class_index_dict[original_label]
         )
 
         # Retrieve NUN
         if self.independent_channels:
             nun = np.zeros(self.data_shape)
+            feature_labels = []
             for feature in range(self.n_channels):
                 feature_nun_idx, feature_label, feature_dist = self.get_nn_ind(
-                    self.classes_feature_knn_dict[original_label][feature],
-                    x_orig[:, feature], original_label
+                    self.classes_feature_knn_dict[nn_label][feature],
+                    x_orig[:, feature], self.same_class_index_dict[nn_label]
                 )
                 nun[:, feature] = self.X_train[feature_nun_idx, :, feature]
+                feature_labels.append(feature_label)
             dist = np.linalg.norm(x_orig - nun)
-
+            if len(set(feature_labels)) != 1:
+                print(f"Channel labels correspond to instances of classes: {feature_labels}. Desired class is {nn_label}")
         else:
             nun = self.X_train[global_nun_index]
             dist = global_dist
 
-        return nun, label, dist
+        return nun, nn_label, dist
 
     def retrieve_nuns(self, x_origs, original_labels):
         # Check for shape errors

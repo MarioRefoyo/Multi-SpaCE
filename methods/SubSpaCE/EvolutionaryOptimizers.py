@@ -74,7 +74,6 @@ class EvolutionaryOptimizer(ABC):
         return population
 
     def init(self, x_orig, nun_example, desired_class, model, outlier_calculator=None, importance_heatmap=None):
-        self.init_pct = copy.deepcopy(self.original_init_pct)
         self.x_orig = x_orig
         self.nun_example = nun_example
         self.desired_class = desired_class
@@ -82,6 +81,7 @@ class EvolutionaryOptimizer(ABC):
         self.outlier_calculator = outlier_calculator
         self.importance_heatmap = importance_heatmap
         self.fitness_evolution = []
+        self.init_pct = copy.deepcopy(self.original_init_pct)
 
         # Get dimensionality attributes
         if self.feature_axis == 2:

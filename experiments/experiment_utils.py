@@ -1,5 +1,10 @@
 import os
+import random
+import json
 import pickle
+import itertools
+import hashlib
+
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
@@ -7,10 +12,51 @@ from tslearn.neighbors import KNeighborsTimeSeries
 from tslearn.datasets import UCR_UEA_datasets
 
 
+def get_subsample(X_test, y_test, n_instances, seed):
+    if seed is not None:
+        np.random.seed(seed)
+        random.seed(seed)
+
+    subset_idx = np.random.choice(len(X_test), n_instances, replace=False)
+    subset_idx = np.sort(subset_idx)
+    X_test = X_test[subset_idx]
+    y_test = y_test[subset_idx]
+    return X_test, y_test, subset_idx
+
+
+def get_hash_from_params(params):
+    params_str = ''.join(f'{key}={value},' for key, value in sorted(params.items()))
+    params_hash = hashlib.sha1(params_str.encode()).hexdigest()
+    return params_hash
+
+
+def generate_settings_combinations(original_dict):
+    # Create a list of keys with lists as values
+    list_keys = [key for key, value in original_dict.items() if isinstance(value, list)]
+    # Generate all possible combinations
+    combinations = list(itertools.product(*[original_dict[key] for key in list_keys]))
+    # Create a set of experiments dictionaries with unique combinations
+    result = {}
+    for combo in combinations:
+        new_dict = original_dict.copy()
+        for key, value in zip(list_keys, combo):
+            new_dict[key] = value
+        experiment_hash = get_hash_from_params(new_dict)
+        result[experiment_hash] = new_dict
+    return result
+
+
+def load_parameters_from_json(json_filename):
+    with open(json_filename, 'r') as json_file:
+        params = json.load(json_file)
+    return params
+
+
 def store_partial_cfs(results, s_start, s_end, dataset, file_suffix_name):
     # Create folder for dataset if it does not exist
-    os.makedirs(f'./results/{dataset}/', exist_ok=True)
-    with open(f'./results/{dataset}/{file_suffix_name}_{s_start:04d}-{s_end:04d}.pickle', 'wb') as f:
+    os.makedirs(f'./experiments/results/{dataset}/', exist_ok=True)
+    os.makedirs(f'./experiments/results/{dataset}/{file_suffix_name}', exist_ok=True)
+    with open(f'./experiments/results/{dataset}/{file_suffix_name}/{file_suffix_name}_{s_start:04d}-{s_end:04d}.pickle', 'wb') as f:
         pickle.dump(results, f, pickle.HIGHEST_PROTOCOL)
 
 

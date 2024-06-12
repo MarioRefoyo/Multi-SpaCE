@@ -1,13 +1,14 @@
 import os
 import copy
 import pickle
+import json
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from tensorflow import keras
 
 from methods.outlier_calculators import AEOutlierCalculator
-from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval
+from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, get_subsample
 from methods.nun_finders import NUNFinder
 
 
@@ -92,33 +93,41 @@ def load_dataset_for_eval(dataset):
     return data_tuple, y_pred_test, model, outlier_calculator, possible_nuns, desired_classes
 
 
-def calculate_metrics_for_dataset(dataset, counterfactual_methods,
+def calculate_metrics_for_dataset(dataset, methods,
                                   data_tuple, original_classes, model, outlier_calculator, possible_nuns):
+    X_train, y_train, X_test, y_test = data_tuple
+
     results_df = pd.DataFrame()
-    cf_solution_files = [fname for fname in os.listdir(f'./experiments/results/{dataset}/')]
-    desired_cf_solution_files = [cf_sol_file for cf_sol_file in cf_solution_files if
-                                 cf_sol_file in counterfactual_methods]
+    cf_solution_dirs = [fname for fname in os.listdir(f'./experiments/results/{dataset}/') if os.path.isdir(f'./experiments/results/{dataset}/{fname}')]
+    desired_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in cf_solution_dirs if cf_sol_dir in methods.keys()]
     method_cfs_dataset = {}
-    for i, method_file_name in enumerate(desired_cf_solution_files):
+    common_test_indexes = list(range(len(X_test)))
+    for i, method_dir_name in enumerate(desired_cf_solution_dirs):
         # Load solution cfs
-        with open(f'./experiments/results/{dataset}/{method_file_name}', 'rb') as f:
-            print(method_file_name)
+        with open(f'./experiments/results/{dataset}/{method_dir_name}/counterfactuals.pickle', 'rb') as f:
+            print(method_dir_name)
             method_cfs = pickle.load(f)
+        # Load params
+        with open(f'./experiments/results/{dataset}/{method_dir_name}/params.json', 'r') as json_file:
+            method_params = json.load(json_file)
+            method_test_indexes = method_params["X_test_indexes"]
+
         # Get nuns used by the method depending on the name
-        if "gknn" in method_file_name:
-            nuns = possible_nuns["gknn"]
-        elif "iknn" in method_file_name:
+        if method_params["independent_channels"]:
             nuns = possible_nuns["iknn"]
         else:
-            raise ValueError('Not detected NUN finding procedure in name. Method name must contain "gknn" or "iknn"')
+            nuns = possible_nuns["gknn"]
+
         # Calculate metrics
-        X_train, y_train, X_test, y_test = data_tuple
-        method_name = method_file_name.replace('.pickle', '')
+        method_name = methods[method_dir_name]
         method_metrics = calculate_method_metrics(model, outlier_calculator,
-                                                  X_train, X_test, nuns,
-                                                  method_cfs, original_classes, method_name, order=i + 1)
+                                                  X_test[method_test_indexes], nuns[method_test_indexes], method_cfs,
+                                                  original_classes[method_test_indexes], method_name, order=i + 1)
+        method_metrics.insert(0, "ii", method_test_indexes)
         results_df = pd.concat([results_df, method_metrics])
         method_cfs_dataset[method_name] = method_cfs
+        common_test_indexes = list(set(method_test_indexes).intersection(common_test_indexes))
+        common_test_indexes.sort()
 
     # Calculate results table for the dataset
     means_df = results_df.groupby('method').mean()
@@ -130,10 +139,10 @@ def calculate_metrics_for_dataset(dataset, counterfactual_methods,
     mean_std_df = mean_std_df.reset_index()
     results_df['dataset'] = dataset
 
-    return mean_std_df, results_df, method_cfs_dataset
+    return mean_std_df, results_df, method_cfs_dataset, common_test_indexes
 
 
-def calculate_method_metrics(model, outlier_calculator, X_train, X_test, nuns, solutions_in, original_classes,
+def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_in, original_classes,
                              method_name, order=None):
     # Get the results and separate them in counterfactuals and execution times
     solutions = copy.deepcopy(solutions_in)
@@ -141,8 +150,8 @@ def calculate_method_metrics(model, outlier_calculator, X_train, X_test, nuns, s
     execution_times = [solution['time'] for solution in solutions]
 
     # Get size of the input
-    length = X_train.shape[1]
-    n_channels = X_train.shape[2]
+    length = X_test.shape[1]
+    n_channels = X_test.shape[2]
 
     # Loop over counterfactuals
     nchanges = []
@@ -194,6 +203,11 @@ def calculate_method_metrics(model, outlier_calculator, X_train, X_test, nuns, s
             l2s.append(np.nan)
             n_subsequences.append(np.nan)
 
+    # Valid NUN classes
+    nun_preds = model.predict(nuns, verbose=0)
+    nun_pred_class = np.argmax(nun_preds, axis=1)
+    valid_nuns = nun_pred_class != original_classes
+
     # Outlier scores
     # Increase in outlier score
     outlier_scores = outlier_calculator.get_outlier_scores(np.array(counterfactuals).reshape(-1, length, n_channels))
@@ -216,6 +230,7 @@ def calculate_method_metrics(model, outlier_calculator, X_train, X_test, nuns, s
     results["L2"] = l2s
     results["proba"] = pred_probas
     results["valid"] = valids
+    results["nuns_valid"] = valid_nuns
     results["outlier_score"] = outlier_scores.tolist()
     results["increase_outlier_score"] = increase_os.tolist()
     results['subsequences'] = n_subsequences

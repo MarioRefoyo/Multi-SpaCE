@@ -8,7 +8,7 @@ PREFIX_FILES_NAME = "subspace"
 
 
 def infer_fragmentation_samples(dataset, prefix_files_name, path='.'):
-    files = [filename for filename in os.listdir(f'{path}/{dataset}') if filename.startswith(prefix_files_name)]
+    files = [filename for filename in os.listdir(f'{path}/{dataset}/{prefix_files_name}') if filename.startswith(prefix_files_name)]
     last_file_name = files[-1]
     last_file_name = last_file_name.replace(prefix_files_name, "")
     last_file_name = last_file_name.replace(".pickle", "")
@@ -26,21 +26,21 @@ def infer_fragmentation_samples(dataset, prefix_files_name, path='.'):
 def concatenate_and_store_partial_results(dataset, prefix_files_name, suffixes_list, path='.'):
     all_files_list = []
     for suffix in suffixes_list:
-        with open(f'{path}/{dataset}/{prefix_files_name}_{suffix}.pickle', 'rb') as f:
+        with open(f'{path}/{dataset}/{prefix_files_name}/{prefix_files_name}_{suffix}.pickle', 'rb') as f:
             part_file = pickle.load(f)
 
         all_files_list = all_files_list + part_file
 
     # Store concatenated file
-    with open(f'{path}/{dataset}/{prefix_files_name}.pickle', 'wb') as f:
+    with open(f'{path}/{dataset}/{prefix_files_name}/counterfactuals.pickle', 'wb') as f:
         pickle.dump(all_files_list, f, pickle.HIGHEST_PROTOCOL)
 
 
 def remove_partial_files(dataset, prefix_files_name, path='.'):
-    files = [filename for filename in os.listdir(f'{path}/{dataset}') if filename.startswith(prefix_files_name)]
+    files = [filename for filename in os.listdir(f'{path}/{dataset}/{prefix_files_name}') if filename.startswith(prefix_files_name)]
     partial_files = [filename for filename in files if '-' in filename]
     for partial_file in partial_files:
-        os.remove(f'{path}/{dataset}/{partial_file}')
+        os.remove(f'{path}/{dataset}/{prefix_files_name}/{partial_file}')
 
 
 def concatenate_result_files(dataset, prefix_file_name):
@@ -48,7 +48,7 @@ def concatenate_result_files(dataset, prefix_file_name):
     fragmentation_samples, total_samples = infer_fragmentation_samples(
         dataset,
         prefix_file_name,
-        path='./results'
+        path='./experiments/results'
     )
     suffixes_list = [f"{i:04d}-{i + fragmentation_samples - 1:04d}" for i in
                      range(0, total_samples, fragmentation_samples)]
@@ -56,13 +56,13 @@ def concatenate_result_files(dataset, prefix_file_name):
         dataset,
         prefix_file_name,
         suffixes_list,
-        path='./results'
+        path='./experiments/results'
     )
     # Remove the temporal files
     remove_partial_files(
         dataset,
         prefix_file_name,
-        path='./results'
+        path='./experiments/results'
     )
 
 
