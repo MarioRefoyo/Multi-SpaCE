@@ -9,7 +9,7 @@ from tensorflow import keras
 
 from methods.outlier_calculators import AEOutlierCalculator
 from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, get_subsample
-from methods.nun_finders import NUNFinder
+from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
 
 
 def get_start_end_subsequence_positions(orig_change_mask):
@@ -75,18 +75,20 @@ def load_dataset_for_eval(dataset):
     # Get the NUNs
     possible_nuns = {}
     # Get nuns with global knn
-    nun_finder = NUNFinder(
+    nun_finder = GlobalNUNFinder(
         X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
-        from_true_labels=False, independent_channels=False, backend='tf'
+        from_true_labels=False, backend='tf'
     )
     gknn_nuns, desired_classes, _ = nun_finder.retrieve_nuns(X_test, y_pred_test)
+    gknn_nuns = np.squeeze(gknn_nuns)
     possible_nuns['gknn'] = gknn_nuns
     # Get nuns with individual knn for channels
-    nun_finder = NUNFinder(
+    nun_finder = IndependentNUNFinder(
         X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
-        from_true_labels=False, independent_channels=True, backend='tf'
+        from_true_labels=False, backend='tf'
     )
     iknn_nuns, desired_classes, _ = nun_finder.retrieve_nuns(X_test, y_pred_test)
+    iknn_nuns = np.squeeze(iknn_nuns)
     possible_nuns['iknn'] = iknn_nuns
     # NOTE: DESIRED CLASSES ARE ALWAYS THE SAME
 
@@ -113,7 +115,7 @@ def calculate_metrics_for_dataset(dataset, methods,
             method_test_indexes = method_params["X_test_indexes"]
 
         # Get nuns used by the method depending on the name
-        if method_params["independent_channels"]:
+        if method_params["independent_channels_nun"]:
             nuns = possible_nuns["iknn"]
         else:
             nuns = possible_nuns["gknn"]
@@ -140,6 +142,29 @@ def calculate_metrics_for_dataset(dataset, methods,
     results_df['dataset'] = dataset
 
     return mean_std_df, results_df, method_cfs_dataset, common_test_indexes
+
+
+def calculate_method_valids(model, X_test, counterfactuals, original_classes):
+    # Get size of the input
+    length = X_test.shape[1]
+    n_channels = X_test.shape[2]
+
+    # Loop over counterfactuals
+    valids = []
+    for i in tqdm(range(len(X_test))):
+        counterfactuals[i] = counterfactuals[i].reshape(length, n_channels)
+
+        # Predict counterfactual class probability
+        preds = model.predict(counterfactuals[i].reshape(-1, length, n_channels), verbose=0)
+        pred_class = np.argmax(preds, axis=1)[0]
+
+        # Valids
+        if pred_class != original_classes[i]:
+            valids.append(True)
+        else:
+            valids.append(False)
+
+    return valids
 
 
 def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_in, original_classes,
@@ -212,8 +237,8 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
     # Increase in outlier score
     outlier_scores = outlier_calculator.get_outlier_scores(np.array(counterfactuals).reshape(-1, length, n_channels))
     outlier_scores_orig = outlier_calculator.get_outlier_scores(X_test)
-    outlier_scores_nuns = outlier_calculator.get_outlier_scores(nuns)
-    increase_os = outlier_scores - (outlier_scores_orig + outlier_scores_nuns) / 2
+    # outlier_scores_nuns = outlier_calculator.get_outlier_scores(nuns)
+    increase_os = outlier_scores - outlier_scores_orig
     increase_os[increase_os < 0] = 0
     # Put to nan all the non valid cfs
     valids_array = np.array(valids).flatten()

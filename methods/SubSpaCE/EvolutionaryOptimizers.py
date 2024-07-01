@@ -8,7 +8,7 @@ class EvolutionaryOptimizer(ABC):
     def __init__(self, fitness_func, prediction_func, population_size, elite_number, offsprings_number, max_iter,
                  init_pct, reinit,
                  invalid_penalization, alpha, beta, eta, gamma, sparsity_balancer,
-                 feature_axis, multivariate_mode):
+                 feature_axis, individual_channel_search):
         # Asert elite numbers and replacement count do not surpass population size
         if elite_number + offsprings_number > population_size:
             raise ValueError('Elites and offsprings counts must not be greater than population size')
@@ -34,13 +34,13 @@ class EvolutionaryOptimizer(ABC):
         self.original_init_pct = init_pct
 
         self.feature_axis = feature_axis
-        self.multivariate_mode = multivariate_mode
+        self.individual_channel_search = individual_channel_search
 
         self.reinit = reinit
 
     def init_population(self, importance_heatmap=None):
         # Threat all channels as an individual instance (crossover and mutate them independently)
-        if self.multivariate_mode == 'individual':
+        if self.individual_channel_search:
             # Init population
             random_data = np.random.uniform(
                 0, 1,
@@ -52,7 +52,7 @@ class EvolutionaryOptimizer(ABC):
             else:
                 inducted_data = random_data
         # Work on instance level, mutate and crossover all channels at the same time
-        elif self.multivariate_mode == 'grouped':
+        else:
             # Init population
             random_data = np.random.uniform(
                 0, 1,
@@ -64,8 +64,6 @@ class EvolutionaryOptimizer(ABC):
                 inducted_data = (mix_ratio * random_data + (1 - mix_ratio) * importance_heatmap_mean) / 2
             else:
                 inducted_data = random_data
-        else:
-            raise ValueError("Multivariate mode is not supported.")
 
         # Calculate quantile and population
         quantile = np.quantile(inducted_data.flatten(), 1 - self.init_pct)
@@ -73,15 +71,16 @@ class EvolutionaryOptimizer(ABC):
 
         return population
 
-    def init(self, x_orig, nun_example, desired_class, model, outlier_calculator=None, importance_heatmap=None):
+    def init(self, x_orig, nun_example, desired_class, model,
+             init_mask=None, outlier_calculator=None, importance_heatmap=None):
         self.x_orig = x_orig
         self.nun_example = nun_example
         self.desired_class = desired_class
         self.model = model
         self.outlier_calculator = outlier_calculator
         self.importance_heatmap = importance_heatmap
-        self.fitness_evolution = []
         self.init_pct = copy.deepcopy(self.original_init_pct)
+        self.init_mask = init_mask
 
         # Get dimensionality attributes
         if self.feature_axis == 2:
@@ -91,12 +90,28 @@ class EvolutionaryOptimizer(ABC):
             raise ValueError('Feature Axis Value is not valid. Only 2 is supported (for tf models)')
 
         # Init population
-        population = self.init_population(self.importance_heatmap)
+        if init_mask is not None:
+            # Sanity checks to check consistency of initial mask with the mode defined in init
+            if self.individual_channel_search:
+                if init_mask.shape != x_orig.shape:
+                    raise ValueError("In multivariate mode individual channels, mask must have the same dimensionality"
+                                     "than x_orig")
+            else:
+                if (init_mask.shape[0] != x_orig.shape[0]) & (init_mask.shape[2] != 1):
+                    raise ValueError("In multivariate mode grouped channels, mask must have only one channel"
+                                     "than x_orig")
+            # Get population
+            population = np.tile(init_mask, (self.population_size, 1, 1))
+            population = self.mutate(population)
+        else:
+            # Init masks randomly
+            population = self.init_population(self.importance_heatmap)
+        # Set population attribute
         self.population = population
 
         # Compute initial outlier scores
         self.outlier_scores_orig = self.outlier_calculator.get_outlier_scores(self.x_orig)
-        self.outlier_score_nun = self.outlier_calculator.get_outlier_scores(self.nun_example)
+        # self.outlier_score_nun = self.outlier_calculator.get_outlier_scores(self.nun_example)
 
     def __call__(self):
         return self.optimize()
@@ -156,13 +171,11 @@ class EvolutionaryOptimizer(ABC):
     def get_counterfactuals(self, x_orig, nun_example, population):
         population_size = population.shape[0]
         # Transform mask to original dara dimensions
-        if self.multivariate_mode == 'individual':
-            population_mask = population.astype(bool)
-        elif self.multivariate_mode == 'grouped':
-            population = np.repeat(population, self.n_features, axis=self.feature_axis)
+        if self.individual_channel_search:
             population_mask = population.astype(bool)
         else:
-            raise ValueError("Multivariate mode is not supported.")
+            population = np.repeat(population, self.n_features, axis=self.feature_axis)
+            population_mask = population.astype(bool)
 
         # Replicate x_orig and nun_example in array
         x_orig_ext = np.tile(x_orig, (population_size, 1, 1))
@@ -185,7 +198,7 @@ class EvolutionaryOptimizer(ABC):
         # Get outlier scores
         if self.outlier_calculator is not None:
             outlier_scores = self.outlier_calculator.get_outlier_scores(population_cfs)
-            increase_outlier_score = outlier_scores - (self.outlier_scores_orig + self.outlier_score_nun) / 2
+            increase_outlier_score = outlier_scores - self.outlier_scores_orig
         else:
             outlier_scores = None
             increase_outlier_score = None
@@ -216,11 +229,13 @@ class EvolutionaryOptimizer(ABC):
         best_score = -100
         best_sample = None
         best_classification_prob = 0
+        fitness_evolution = []
+
 
         # Compute initial fitness
         fitness, _ = self.compute_fitness()
         i = np.argsort(fitness)[-1]
-        self.fitness_evolution.append(fitness[i])
+        fitness_evolution.append(fitness[i])
 
         # Run evolution
         iteration = 0
@@ -253,7 +268,7 @@ class EvolutionaryOptimizer(ABC):
                 print('what???')
             fitness, class_probs = self.compute_fitness()
             i = np.argsort(fitness)[-1]
-            self.fitness_evolution.append(fitness[i])
+            fitness_evolution.append(fitness[i])
             if fitness[i] > best_score:
                 best_score = fitness[i]
                 best_sample = self.population[i]
@@ -291,7 +306,7 @@ class EvolutionaryOptimizer(ABC):
                         return None, None
                     fitness, class_probs = self.compute_fitness()
 
-        return best_sample, best_classification_prob
+        return best_sample, best_classification_prob, fitness_evolution
 
 
 class BasicEvolutionaryOptimizer(EvolutionaryOptimizer):
@@ -300,11 +315,11 @@ class BasicEvolutionaryOptimizer(EvolutionaryOptimizer):
                  mutation_prob=0.1,
                  init_pct=0.4, reinit=True,
                  invalid_penalization=100, alpha=0.2, beta=0.6, eta=0.2, gamma=0.25, sparsity_balancer=0.4,
-                 feature_axis=2, multivariate_mode='individual'):
+                 feature_axis=2, individual_channel_search=False):
         super().__init__(fitness_func, prediction_func, population_size, elite_number, offsprings_number, max_iter,
                          init_pct, reinit, invalid_penalization,
                          alpha, beta, eta, gamma, sparsity_balancer,
-                         feature_axis, multivariate_mode)
+                         feature_axis, individual_channel_search)
         self.mutation_prob = mutation_prob
 
     def mutate(self, sub_population):
@@ -321,11 +336,11 @@ class NSubsequenceEvolutionaryOptimizer(EvolutionaryOptimizer):
                  change_subseq_mutation_prob=0.05, add_subseq_mutation_prob=0,
                  init_pct=0.4, reinit=True,
                  invalid_penalization=100, alpha=0.2, beta=0.6, eta=0.2, gamma=0.25, sparsity_balancer=0.4,
-                 feature_axis=2, multivariate_mode='individual'):
+                 feature_axis=2, individual_channel_search=False):
         super().__init__(fitness_func, prediction_func, population_size, elite_number, offsprings_number, max_iter,
                          init_pct, reinit, invalid_penalization,
                          alpha, beta, eta, gamma, sparsity_balancer,
-                         feature_axis, multivariate_mode)
+                         feature_axis, individual_channel_search)
         self.change_subseq_mutation_prob = change_subseq_mutation_prob
         self.add_subseq_mutation_prob = add_subseq_mutation_prob
 

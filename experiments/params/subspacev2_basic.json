@@ -1,0 +1,23 @@
+{
+  "metadata": "Sub-SpaCE v.2 more mut",
+  "seed": 24,
+  "subset": true,
+  "subset_number": 100,
+
+  "independent_channels_nun": false,
+
+  "population_size": 100,
+  "change_subseq_mutation_prob": 0.05,
+  "add_subseq_mutation_prob": 0,
+  "elite_number": 4,
+  "offsprings_number": 96,
+  "max_iter": [[0, 100], [100, 0], [75, 25]],
+  "init_pct": 0.2,
+  "reinit": true,
+  "invalid_penalization": 100,
+  "alpha": 0.2,
+  "beta": 0.6,
+  "eta": 0.2,
+  "gamma": 0.25,
+  "sparsity_balancer": 0.4
+}

@@ -20,11 +20,11 @@ from methods.nun_finders import NUNFinder
 
 DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
 # DATASETS = ['UWaveGestureLibrary', 'NATOPS']
-PARAMS_PATH = 'experiments/params/subspace_basic_low_gamma.json'
+PARAMS_PATH = 'experiments/params/subspace_global_new_ios.json'
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
-POOL_SIZE = 10
+POOL_SIZE = 1
 
 
 def get_counterfactual_worker(sample_dict):
@@ -59,7 +59,7 @@ def get_counterfactual_worker(sample_dict):
         init_pct=params["init_pct"], reinit=params["reinit"],
         invalid_penalization=params["invalid_penalization"], alpha=params["alpha"], beta=params["beta"],
         eta=params["eta"], gamma=params["gamma"], sparsity_balancer=params["sparsity_balancer"],
-        multivariate_mode=params["multivariate_mode"]
+        individual_channel_search=params["individual_channel_search"]
     )
 
     # Generate counterfactuals
@@ -107,7 +107,7 @@ def experiment_dataset(dataset, exp_name, params):
     # Get the NUNs
     nun_finder = NUNFinder(
         X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
-        from_true_labels=False, independent_channels=params["independent_channels"], backend='tf'
+        from_true_labels=False, independent_channels_nun=params["independent_channels_nun"], backend='tf'
     )
     nuns, desired_classes, distances = nun_finder.retrieve_nuns(X_test, y_pred_test)
 

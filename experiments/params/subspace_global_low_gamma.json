@@ -1,0 +1,23 @@
+{
+  "seed": 24,
+  "subset": true,
+  "subset_number": 100,
+
+  "independent_channels_nun": [false, true],
+
+  "population_size": 100,
+  "change_subseq_mutation_prob": 0.05,
+  "add_subseq_mutation_prob": 0,
+  "elite_number": 4,
+  "offsprings_number": 96,
+  "max_iter": 100,
+  "init_pct": 0.2,
+  "reinit": true,
+  "invalid_penalization": 100,
+  "alpha": 0.2,
+  "beta": 0.6,
+  "eta": 0.2,
+  "gamma": 0.125,
+  "sparsity_balancer": 0.4,
+  "individual_channel_search": false
+}

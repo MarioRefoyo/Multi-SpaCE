@@ -3,7 +3,7 @@
   "subset": true,
   "subset_number": 100,
 
-  "independent_channels": [false, true],
+  "independent_channels_nun": [false, true],
 
   "population_size": 100,
   "change_subseq_mutation_prob": 0.05,
@@ -19,5 +19,5 @@
   "eta": 0.2,
   "gamma": 0.25,
   "sparsity_balancer": 0.4,
-  "multivariate_mode": ["grouped", "individual"]
+  "individual_channel_search": [false, true]
 }
