@@ -20,11 +20,11 @@ from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
 
 DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
 # DATASETS = ['UWaveGestureLibrary', 'NATOPS']
-PARAMS_PATH = 'experiments/params/subspacev2_moremut.json'
+PARAMS_PATH = 'experiments/params/subspacev2_independent.json'
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
-POOL_SIZE = 1
+POOL_SIZE = 10
 
 
 def get_counterfactual_worker(sample_dict):
@@ -107,17 +107,17 @@ def experiment_dataset(dataset, exp_name, params):
     # Get the NUNs
     if params["independent_channels_nun"]:
         nun_finder = IndependentNUNFinder(
-            X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
-            from_true_labels=False, backend='tf'
+            X_train, y_train, y_pred_train, distance='euclidean',
+            from_true_labels=False, backend='tf', n_neighbors=params["n_neighbors"], model=model
         )
     else:
         nun_finder = GlobalNUNFinder(
-            X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
+            X_train, y_train, y_pred_train, distance='euclidean',
             from_true_labels=False, backend='tf'
         )
     nuns, desired_classes, distances = nun_finder.retrieve_nuns(X_test, y_pred_test)
     # ToDo: New SubSpaCe and evolutionary optimizers to support multiple nuns
-    nuns = np.squeeze(nuns)
+    nuns = nuns[:, 0, :, :]
 
     # START COUNTERFACTUAL GENERATION
     if MULTIPROCESSING:

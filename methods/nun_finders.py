@@ -1,4 +1,5 @@
 import copy
+import itertools
 from abc import ABC, abstractmethod
 
 import pandas as pd
@@ -7,7 +8,7 @@ from tslearn.neighbors import KNeighborsTimeSeries
 
 
 class NUNFinder(ABC):
-    def __init__(self, X_train, y_train, y_pred, distance, n_neighbors, from_true_labels, backend):
+    def __init__(self, X_train, y_train, y_pred, distance, from_true_labels, backend, n_neighbors):
         if backend == 'tf':
             self.backend = backend
             self.feature_axis = 2
@@ -91,7 +92,9 @@ class NUNFinder(ABC):
 
 
 class GlobalNUNFinder(NUNFinder):
-    def __init__(self, X_train, y_train, y_pred, distance, n_neighbors, from_true_labels,  backend):
+    def __init__(self, X_train, y_train, y_pred, distance, from_true_labels,  backend):
+        # Force 1 n_neighbors
+        n_neighbors = 1
         super().__init__(X_train, y_train, y_pred, distance, n_neighbors, from_true_labels, backend)
 
     def retrieve_single_nun_specific(self, x_orig, original_label):
@@ -108,8 +111,10 @@ class GlobalNUNFinder(NUNFinder):
 
 
 class IndependentNUNFinder(NUNFinder):
-    def __init__(self, X_train, y_train, y_pred, distance, n_neighbors, from_true_labels, backend):
-        super().__init__(X_train, y_train, y_pred, distance, n_neighbors, from_true_labels, backend)
+    def __init__(self, X_train, y_train, y_pred, distance, from_true_labels, backend, n_neighbors, model):
+        super().__init__(X_train, y_train, y_pred, distance, from_true_labels, backend, n_neighbors)
+        self.model = model
+        self.exhaustive = False
 
         # Train a knn per channel and class if independent channels flag is active
         classes = np.unique(y_train)
@@ -130,11 +135,31 @@ class IndependentNUNFinder(NUNFinder):
         self.same_class_index_dict = same_class_index_dict
         self.classes_feature_knn_dict = classes_feature_knn_dict
 
+        # Pre-load possible combinations of channels
+        if self.exhaustive:
+            # Generate all possible combinations
+            range_channel_indexes = [list(range(self.n_neighbors)) for _ in range(self.n_channels)]
+            combinations = list(itertools.product(*range_channel_indexes))
+            combinations = np.array(combinations)
+        else:
+            n_samples = 10000
+            # Sample randomly from possibilities
+            combinations = np.random.choice(self.n_neighbors, (n_samples, self.n_channels))
+            combinations = np.unique(combinations, axis=0)
+        self.combinations = combinations
+
+    def generate_nuns_from_indexes(self, combinations):
+        nuns = np.zeros((len(combinations),) + self.data_shape)
+
+        for feature in range(self.n_channels):
+            feature_indexes = combinations[:, feature]
+            nuns[:, :, feature] = self.X_train[feature_indexes, :, feature]
+        return nuns
+
     def retrieve_single_nun_specific(self, x_orig, original_label):
         global_nun_indexes, nn_label, global_dists = self.get_nns_indexes(
             self.classes_knn_dict[original_label], x_orig, self.diff_class_index_dict[original_label]
         )
-        global_nun_index, global_dist = global_nun_indexes[0], global_dists[0]
 
         # Retrieve NUN
         if self.n_neighbors > 1:
@@ -147,11 +172,36 @@ class IndependentNUNFinder(NUNFinder):
                 )
                 channel_indexes.append(feature_nun_idxes)
 
-            # Generate all possible permutations
+            # Replace range indexes to true indexes
+            traduced_combinations = copy.deepcopy(self.combinations)
+            for feature in range(self.n_channels):
+                for i_nn in range(self.n_neighbors):
+                    traduced_combinations[traduced_combinations[:, feature] == i_nn, feature] = channel_indexes[feature][i_nn]
 
-            # Get validity of the permutations
+            possible_nuns = self.generate_nuns_from_indexes(traduced_combinations)
+            # Get validity and distances of the permutations
+            nun_logits = self.model.predict(possible_nuns, verbose=0)
+            nun_classes = np.argmax(nun_logits, axis=1)
+            valids = nun_classes == nn_label
+            nun_distances = np.linalg.norm(x_orig - possible_nuns, axis=(1, 2))
 
             # Order by proximity and get the nun
+            possible_nuns_df = pd.DataFrame()
+            possible_nuns_df["perm_id"] = list(range(len(traduced_combinations)))
+            possible_nuns_df["y_pred"] = nun_classes
+            possible_nuns_df["valid"] = valids
+            possible_nuns_df["distance"] = nun_distances
+            possible_nuns_df = possible_nuns_df.sort_values(by="distance")
+            possible_nuns_df = possible_nuns_df[possible_nuns_df["valid"] == True]
+            if len(possible_nuns_df) == 0:
+                print("NUN could not be found. Returning the global NUN.")
+                nuns = self.X_train[global_nun_indexes]
+                return nuns, nn_label, global_dists
+
+            # First n_neighbors
+            perm_indexes = possible_nuns_df["perm_id"].values[:self.n_neighbors]
+            nuns = possible_nuns[perm_indexes]
+            dist = nun_distances[perm_indexes]
 
         else:
             nuns = np.zeros((self.n_neighbors,) + self.data_shape)

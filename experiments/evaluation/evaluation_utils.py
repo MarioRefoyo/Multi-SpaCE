@@ -80,7 +80,7 @@ def load_dataset_for_eval(dataset):
         from_true_labels=False, backend='tf'
     )
     gknn_nuns, desired_classes, _ = nun_finder.retrieve_nuns(X_test, y_pred_test)
-    gknn_nuns = np.squeeze(gknn_nuns)
+    gknn_nuns = gknn_nuns[:, 0, :, :]
     possible_nuns['gknn'] = gknn_nuns
     # Get nuns with individual knn for channels
     nun_finder = IndependentNUNFinder(
@@ -88,7 +88,7 @@ def load_dataset_for_eval(dataset):
         from_true_labels=False, backend='tf'
     )
     iknn_nuns, desired_classes, _ = nun_finder.retrieve_nuns(X_test, y_pred_test)
-    iknn_nuns = np.squeeze(iknn_nuns)
+    iknn_nuns = iknn_nuns[:, 0, :, :]
     possible_nuns['iknn'] = iknn_nuns
     # NOTE: DESIRED CLASSES ARE ALWAYS THE SAME
 
