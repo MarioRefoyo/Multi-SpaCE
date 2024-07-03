@@ -1,13 +1,14 @@
 {
-  "metadata": "Sub-SpaCE v.2 more mut",
+  "metadata": "Sub-SpaCE v.2 more mut +",
   "seed": 24,
   "subset": true,
   "subset_number": 100,
 
   "independent_channels_nun": false,
+  "n_neighbors": 1,
 
   "population_size": 100,
-  "change_subseq_mutation_prob": 0.2,
+  "change_subseq_mutation_prob": [0.7, 0.9],
   "add_subseq_mutation_prob": 0,
   "elite_number": 4,
   "offsprings_number": 96,

@@ -20,7 +20,7 @@ from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
 
 DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
 # DATASETS = ['UWaveGestureLibrary', 'NATOPS']
-PARAMS_PATH = 'experiments/params/subspacev2_independent.json'
+PARAMS_PATH = 'experiments/params/subspacev2_moremut_extended.json'
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5

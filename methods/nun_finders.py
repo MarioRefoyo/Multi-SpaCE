@@ -95,7 +95,7 @@ class GlobalNUNFinder(NUNFinder):
     def __init__(self, X_train, y_train, y_pred, distance, from_true_labels,  backend):
         # Force 1 n_neighbors
         n_neighbors = 1
-        super().__init__(X_train, y_train, y_pred, distance, n_neighbors, from_true_labels, backend)
+        super().__init__(X_train, y_train, y_pred, distance, from_true_labels, backend, n_neighbors)
 
     def retrieve_single_nun_specific(self, x_orig, original_label):
         global_nun_indexes, nn_label, global_dists = self.get_nns_indexes(
