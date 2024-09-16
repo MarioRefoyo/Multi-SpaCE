@@ -11,18 +11,15 @@ from tqdm import tqdm
 import tensorflow as tf
 from sklearn.metrics import classification_report
 
-from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, store_partial_cfs, \
-    ucr_data_loader, load_parameters_from_json, generate_settings_combinations, get_subsample
+from experiments.experiment_utils import local_data_loader, label_encoder, store_partial_cfs, \
+    load_parameters_from_json, generate_settings_combinations, get_subsample
 from experiments.results.results_concatenator import concatenate_result_files
 
-from methods.SubSpaCECF import SubSpaCECFv2
-from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
+from methods.COMTECF import COMTECF
 
 DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
-# DATASETS = ['UWaveGestureLibrary', 'NATOPS']
-PARAMS_PATH = 'experiments/params_cf/subspacev2_new_baseline.json'
+PARAMS_PATH = 'experiments/params_cf/baseline_comte.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
-OC_EXPERIMENT_NAME = 'ae_basic_train'
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
@@ -31,12 +28,11 @@ POOL_SIZE = 10
 
 def get_counterfactual_worker(sample_dict):
     dataset = sample_dict["dataset"]
+    X_train, y_train = sample_dict["train_data_tuple"]
     exp_name = sample_dict["exp_name"]
     params = sample_dict["params"]
     first_sample_i = sample_dict["first_sample_i"]
     x_orig_samples_worker = sample_dict["x_orig_samples"]
-    nun_examples_worker = sample_dict["nun_examples"]
-    desired_targets_worker = sample_dict["desired_targets"]
 
     # Set seed in thread. ToDo: is it really necessary?
     if params["seed"] is not None:
@@ -44,37 +40,23 @@ def get_counterfactual_worker(sample_dict):
         tf.random.set_seed(params["seed"])
         random.seed(params["seed"])
 
-    # Get model
+    # Load model
     model_worker = tf.keras.models.load_model(f'experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/model.hdf5')
 
-    # Get outlier calculator
-    with open(f'experiments/models/{dataset}/{OC_EXPERIMENT_NAME}/outlier_calculator.pickle', 'rb') as f:
-        outlier_calculator_worker = pickle.load(f)
-
     # Instantiate the Counterfactual Explanation method
-    grouped_channels_iter, individual_channels_iter = params["max_iter"]
-    cf_explainer = SubSpaCECFv2(
-        model_worker, 'tf', outlier_calculator_worker, grouped_channels_iter, individual_channels_iter,
-        population_size=params["population_size"], elite_number=params["elite_number"],
-        offsprings_number=params["offsprings_number"],
-        change_subseq_mutation_prob=params["change_subseq_mutation_prob"],
-        add_subseq_mutation_prob=params["add_subseq_mutation_prob"],
-        init_pct=params["init_pct"], reinit=params["reinit"],
-        invalid_penalization=params["invalid_penalization"], alpha=params["alpha"], beta=params["beta"],
-        eta=params["eta"], gamma=params["gamma"], sparsity_balancer=params["sparsity_balancer"],
-    )
+    cf_explainer = COMTECF(model_worker, 'tf', X_train, y_train, params["number_distractors"],
+                           max_attempts=params["max_attempts"], max_iter=params["max_iter"],
+                           restarts=params["restarts"], reg=params["reg"])
 
     # Generate counterfactuals
     results = []
     for i in tqdm(range(0, len(x_orig_samples_worker), 1)):
-        x_orig_worker = x_orig_samples_worker[i]
-        nun_example_worker = nun_examples_worker[i]
-        desired_target_worker = desired_targets_worker[i]
-        result = cf_explainer.generate_counterfactual(x_orig_worker, desired_target_worker, nun_example=nun_example_worker)
+        x_orig = np.expand_dims(x_orig_samples_worker[i], axis=0)
+        result = cf_explainer.generate_counterfactual(x_orig)
         results.append(result)
 
     # Store results of cf in list
-    store_partial_cfs(results, first_sample_i, first_sample_i + THREAD_SAMPLES - 1,
+    store_partial_cfs(results, first_sample_i, first_sample_i+THREAD_SAMPLES-1,
                       dataset, MODEL_TO_EXPLAIN_EXPERIMENT_NAME, file_suffix_name=exp_name)
     return 1
 
@@ -106,39 +88,21 @@ def experiment_dataset(dataset, exp_name, params):
     # Classification report
     print(classification_report(y_test, y_pred_test))
 
-    # Get the NUNs
-    if params["independent_channels_nun"]:
-        nun_finder = IndependentNUNFinder(
-            X_train, y_train, y_pred_train, distance='euclidean',
-            from_true_labels=False, backend='tf', n_neighbors=params["n_neighbors"], model=model
-        )
-    else:
-        nun_finder = GlobalNUNFinder(
-            X_train, y_train, y_pred_train, distance='euclidean',
-            from_true_labels=False, backend='tf'
-        )
-    nuns, desired_classes, distances = nun_finder.retrieve_nuns(X_test, y_pred_test)
-    # ToDo: New SubSpaCe and evolutionary optimizers to support multiple nuns
-    nuns = nuns[:, 0, :, :]
-
-    # START COUNTERFACTUAL GENERATION
+    # Get counterfactuals
     if MULTIPROCESSING:
         # Prepare dict to iterate optimization problem
         samples = []
         for i in range(I_START, len(X_test), THREAD_SAMPLES):
             # Init optimizer
             x_orig_samples = X_test[i:i + THREAD_SAMPLES]
-            nun_examples = nuns[i:i + THREAD_SAMPLES]
-            desired_targets = desired_classes[i:i + THREAD_SAMPLES]
 
             sample_dict = {
                 "dataset": dataset,
+                "train_data_tuple": (X_train, y_train),
                 "exp_name": exp_name,
                 "params": params,
                 "first_sample_i": i,
                 "x_orig_samples": x_orig_samples,
-                "nun_examples": nun_examples,
-                "desired_targets": desired_targets,
             }
             samples.append(sample_dict)
 
@@ -147,8 +111,24 @@ def experiment_dataset(dataset, exp_name, params):
         with Pool(POOL_SIZE) as p:
             _ = list(tqdm(p.imap(get_counterfactual_worker, samples), total=len(samples)))
 
-    # Concatenate the results
-    concatenate_result_files(dataset, MODEL_TO_EXPLAIN_EXPERIMENT_NAME, exp_name)
+        # Concatenate the results
+        concatenate_result_files(dataset, MODEL_TO_EXPLAIN_EXPERIMENT_NAME, exp_name)
+
+    else:
+        cf_explainer = COMTECF(model, 'tf', X_train, y_train, params["number_distractors"],
+                               max_attempts=params["max_attempts"], max_iter=params["max_iter"],
+                               restarts=params["restarts"], reg=params["reg"])
+
+        # Generate counterfactuals
+        results = []
+        for i in tqdm(range(len(X_test))):
+            x_orig = np.expand_dims(X_test[i], axis=0)
+            result = cf_explainer.generate_counterfactual(x_orig)
+            results.append(result)
+
+        # Store experiment results
+        with open(f'./experiments/results/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/{exp_name}/results.pickle', 'wb') as f:
+            pickle.dump(results, f, pickle.HIGHEST_PROTOCOL)
 
     # Store experiment metadata
     params["X_test_indexes"] = subset_idx.tolist()
@@ -158,14 +138,15 @@ def experiment_dataset(dataset, exp_name, params):
 
 if __name__ == "__main__":
     # Load parameters
+    exp_name = "comte"
     all_params = load_parameters_from_json(PARAMS_PATH)
-    params_combinations = generate_settings_combinations(all_params)
-    for experiment_name, experiment_params in params_combinations.items():
-        for dataset in DATASETS:
-            print(f'Starting experiment {experiment_name} for dataset {dataset}...')
-            experiment_dataset(
-                dataset,
-                experiment_name,
-                experiment_params
-            )
+    for dataset in DATASETS:
+        if not os.path.isdir(f"./experiments/results/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/{exp_name}"):
+            os.makedirs(f"./experiments/results/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/{exp_name}")
+        print(f'Starting experiment for dataset {dataset}...')
+        experiment_dataset(
+            dataset,
+            exp_name,
+            all_params
+        )
     print('Finished')

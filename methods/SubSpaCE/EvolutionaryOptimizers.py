@@ -56,7 +56,7 @@ class EvolutionaryOptimizer(ABC):
             # Init population
             random_data = np.random.uniform(
                 0, 1,
-                (self.population_size,) + self.x_orig.mean(axis=self.feature_axis-1).shape + (1,)
+                (self.population_size,) + (self.ts_length, 1)
             )
             if importance_heatmap is not None:
                 importance_heatmap_mean = importance_heatmap.mean(axis=self.feature_axis-1).reshape(self.ts_length, 1)

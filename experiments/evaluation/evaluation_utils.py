@@ -26,42 +26,46 @@ def get_start_end_subsequence_positions(orig_change_mask):
     return before_after_ones_mask
 
 
-def calculate_change_mask(x_orig, x_nun, x_cf, verbose=0):
+def calculate_change_mask(x_orig, x_cf, x_nun=None, verbose=0):
     # Get original change mask (could contain points with common values between NUN, x_orig and x_cf)
     orig_change_mask = (x_orig != x_cf).astype(int)
     orig_change_mask = orig_change_mask.T.reshape(-1, 1)
 
     # Find common values
-    cv_xorig_nun = (x_orig == x_nun)
-    cv_nun_cf = (x_nun == x_cf)
-    cv_all = (cv_xorig_nun & cv_nun_cf).astype(int)
-    cv_all = cv_all.T.reshape(-1, 1)
+    if x_nun is not None:
+        cv_xorig_nun = (x_orig == x_nun)
+        cv_nun_cf = (x_nun == x_cf)
+        cv_all = (cv_xorig_nun & cv_nun_cf).astype(int)
+        cv_all = cv_all.T.reshape(-1, 1)
 
-    # Check if thos common values are at the start or end of a current subsequence
-    start_end_mask = cv_all & get_start_end_subsequence_positions(orig_change_mask).astype(int)
-    if verbose==1:
-        print(orig_change_mask.flatten())
-        print(get_start_end_subsequence_positions(orig_change_mask).flatten())
-        print(cv_all.flatten())
-        print(start_end_mask.flatten())
+        # Check if those common values are at the start or end of a current subsequence
+        start_end_mask = cv_all & get_start_end_subsequence_positions(orig_change_mask).astype(int)
+        if verbose==1:
+            print(orig_change_mask.flatten())
+            print(get_start_end_subsequence_positions(orig_change_mask).flatten())
+            print(cv_all.flatten())
+            print(start_end_mask.flatten())
 
-    # Add noise to those original points that are common to original, NUN and cf
-    # are at the beginning or end of a subsequence on the change mask
-    noise = np.random.normal(0, 1e-6, x_orig.shape)
-    new_x_orig = x_orig + noise * start_end_mask.reshape(x_orig.shape, order='F')
+        # Add noise to those original points that are common to original, NUN and cf
+        # are at the beginning or end of a subsequence on the change mask
+        noise = np.random.normal(0, 1e-6, x_orig.shape)
+        new_x_orig = x_orig + noise * start_end_mask.reshape(x_orig.shape, order='F')
 
-    # Calculate adjusted change mask
-    new_change_mask = (new_x_orig != x_cf).astype(int)
-    return new_change_mask
+        # Calculate adjusted change mask
+        change_mask = (new_x_orig != x_cf).astype(int)
+    else:
+        change_mask = orig_change_mask
+
+    return change_mask
 
 
-def load_dataset_for_eval(dataset):
-    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), data_path="./experiments/data")
+def load_dataset_for_eval(dataset, model_to_explain, ae_name):
+    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), min_max_scaling=False, data_path="./experiments/data")
     y_train, y_test = label_encoder(y_train, y_test)
     data_tuple = (X_train, y_train, X_test, y_test)
 
     # Load model
-    model = keras.models.load_model(f'./experiments/models/{dataset}/{dataset}_best_model.hdf5')
+    model = keras.models.load_model(f'./experiments/models/{dataset}/{model_to_explain}/model.hdf5')
     # Predict
     y_pred_test_logits = model.predict(X_test, verbose=0)
     y_pred_train_logits = model.predict(X_train, verbose=0)
@@ -69,14 +73,14 @@ def load_dataset_for_eval(dataset):
     y_pred_train = np.argmax(y_pred_train_logits, axis=1)
 
     # Load outlier calculator
-    ae = keras.models.load_model(f'./experiments/models/{dataset}/{dataset}_ae.hdf5')
+    ae = keras.models.load_model(f'./experiments/models/{dataset}/{ae_name}/model.hdf5')
     outlier_calculator = AEOutlierCalculator(ae, X_train)
 
     # Get the NUNs
     possible_nuns = {}
     # Get nuns with global knn
     nun_finder = GlobalNUNFinder(
-        X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
+        X_train, y_train, y_pred_train, distance='euclidean',
         from_true_labels=False, backend='tf'
     )
     gknn_nuns, desired_classes, _ = nun_finder.retrieve_nuns(X_test, y_pred_test)
@@ -85,7 +89,7 @@ def load_dataset_for_eval(dataset):
     # Get nuns with individual knn for channels
     nun_finder = IndependentNUNFinder(
         X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
-        from_true_labels=False, backend='tf'
+        from_true_labels=False, backend='tf', model=model
     )
     iknn_nuns, desired_classes, _ = nun_finder.retrieve_nuns(X_test, y_pred_test)
     iknn_nuns = iknn_nuns[:, 0, :, :]
@@ -95,30 +99,33 @@ def load_dataset_for_eval(dataset):
     return data_tuple, y_pred_test, model, outlier_calculator, possible_nuns, desired_classes
 
 
-def calculate_metrics_for_dataset(dataset, methods,
+def calculate_metrics_for_dataset(dataset, methods, model_to_explain,
                                   data_tuple, original_classes, model, outlier_calculator, possible_nuns):
     X_train, y_train, X_test, y_test = data_tuple
 
     results_df = pd.DataFrame()
-    cf_solution_dirs = [fname for fname in os.listdir(f'./experiments/results/{dataset}/') if os.path.isdir(f'./experiments/results/{dataset}/{fname}')]
+    cf_solution_dirs = [fname for fname in os.listdir(f'./experiments/results/{dataset}/{model_to_explain}') if os.path.isdir(f'./experiments/results/{dataset}/{model_to_explain}/{fname}')]
     desired_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in cf_solution_dirs if cf_sol_dir in methods.keys()]
     method_cfs_dataset = {}
     common_test_indexes = list(range(len(X_test)))
     for i, method_dir_name in enumerate(desired_cf_solution_dirs):
         # Load solution cfs
-        with open(f'./experiments/results/{dataset}/{method_dir_name}/counterfactuals.pickle', 'rb') as f:
+        with open(f'./experiments/results/{dataset}/{model_to_explain}/{method_dir_name}/counterfactuals.pickle', 'rb') as f:
             print(method_dir_name)
             method_cfs = pickle.load(f)
         # Load params
-        with open(f'./experiments/results/{dataset}/{method_dir_name}/params.json', 'r') as json_file:
+        with open(f'./experiments/results/{dataset}/{model_to_explain}/{method_dir_name}/params.json', 'r') as json_file:
             method_params = json.load(json_file)
             method_test_indexes = method_params["X_test_indexes"]
 
         # Get nuns used by the method depending on the name
-        if method_params["independent_channels_nun"]:
-            nuns = possible_nuns["iknn"]
+        if "independent_channels_nun" in method_params:
+            if method_params["independent_channels_nun"]:
+                nuns = possible_nuns["iknn"]
+            else:
+                nuns = possible_nuns["gknn"]
         else:
-            nuns = possible_nuns["gknn"]
+            nuns = np.array([None]*len(X_test))
 
         # Calculate metrics
         method_name = methods[method_dir_name]
@@ -204,7 +211,7 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
             # Calculate l0
             # change_mask = (X_test[i] != counterfactuals[i]).astype(int)
             # print(X_test[i].shape, X_train[nuns_idx[i]].shape, counterfactuals[i].shape)
-            change_mask = calculate_change_mask(X_test[i], nuns[i], counterfactuals[i], verbose=0)
+            change_mask = calculate_change_mask(X_test[i], counterfactuals[i], x_nun=nuns[i], verbose=0)
             nchanges.append(change_mask.sum())
 
             # Calculate l1
@@ -229,9 +236,12 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
             n_subsequences.append(np.nan)
 
     # Valid NUN classes
-    nun_preds = model.predict(nuns, verbose=0)
-    nun_pred_class = np.argmax(nun_preds, axis=1)
-    valid_nuns = nun_pred_class != original_classes
+    if nuns[0] is None:
+        valid_nuns = [np.nan]*len(nuns)
+    else:
+        nun_preds = model.predict(nuns, verbose=0)
+        nun_pred_class = np.argmax(nun_preds, axis=1)
+        valid_nuns = nun_pred_class != original_classes
 
     # Outlier scores
     # Increase in outlier score

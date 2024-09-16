@@ -39,11 +39,13 @@ def grad_cam_plus(model, data, layer_name, category_id=None):
     alphas = alpha_num/alpha_denom
     alpha_normalization_constant = np.sum(alphas, axis=0)
     alphas /= alpha_normalization_constant
+    alphas = np.where(np.isnan(alphas), 0, alphas)
 
-    weights = np.maximum(conv_first_grad[0], 0.0)
+    weights = np.maximum(conv_first_grad[0], 0)
 
     deep_linearization_weights = np.sum(weights*alphas, axis=0)
-    grad_cam_map = np.sum(deep_linearization_weights*conv_output[0], axis=1)
+    grad_map = deep_linearization_weights*conv_output[0]
+    grad_cam_map = np.sum(grad_map, axis=1)
     heatmap = np.maximum(grad_cam_map, 0)
     max_heat = np.max(heatmap)
     if max_heat == 0:

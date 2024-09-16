@@ -1,12 +1,14 @@
 import time
 from abc import ABC, abstractmethod
+import numpy as np
 
 
 class CounterfactualMethod(ABC):
 
-    def __init__(self, model, backend='tf'):
+    def __init__(self, model, backend='tf', change=False):
         self.model = model
         self.backend = backend
+        self.change = change
         if backend == 'tf':
             self.predict_function = self.predict_function_tf
             self.feature_axis = 2
@@ -15,6 +17,8 @@ class CounterfactualMethod(ABC):
 
     def predict_function_tf(self, inputs):
         # Predict
+        if self.change:
+            inputs = np.swapaxes(inputs, 2, 1)
         predicted_probs = self.model.predict(inputs, verbose=0)
         return predicted_probs
 

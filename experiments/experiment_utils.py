@@ -52,19 +52,22 @@ def load_parameters_from_json(json_filename):
     return params
 
 
-def store_partial_cfs(results, s_start, s_end, dataset, file_suffix_name):
+def store_partial_cfs(results, s_start, s_end, dataset, model_to_explain_name, file_suffix_name):
     # Create folder for dataset if it does not exist
     os.makedirs(f'./experiments/results/{dataset}/', exist_ok=True)
-    os.makedirs(f'./experiments/results/{dataset}/{file_suffix_name}', exist_ok=True)
-    with open(f'./experiments/results/{dataset}/{file_suffix_name}/{file_suffix_name}_{s_start:04d}-{s_end:04d}.pickle', 'wb') as f:
+    os.makedirs(f'./experiments/results/{dataset}/{model_to_explain_name}/', exist_ok=True)
+    os.makedirs(f'./experiments/results/{dataset}/{model_to_explain_name}/{file_suffix_name}/', exist_ok=True)
+    with open(f'./experiments/results/{dataset}/{model_to_explain_name}/{file_suffix_name}/{file_suffix_name}_{s_start:04d}-{s_end:04d}.pickle', 'wb') as f:
         pickle.dump(results, f, pickle.HIGHEST_PROTOCOL)
 
 
-def local_data_loader(dataset, data_path="../../data"):
+def local_data_loader(dataset, min_max_scaling, data_path="../../data"):
     X_train = np.load(f'{data_path}/UCR/{dataset}/X_train.npy', allow_pickle=True)
     X_test = np.load(f'{data_path}/UCR/{dataset}/X_test.npy', allow_pickle=True)
     y_train = np.load(f'{data_path}/UCR/{dataset}/y_train.npy', allow_pickle=True)
     y_test = np.load(f'{data_path}/UCR/{dataset}/y_test.npy', allow_pickle=True)
+    if min_max_scaling:
+        X_train, X_test = scale_data(X_train, X_test)
     return X_train, y_train, X_test, y_test
 
 
@@ -77,18 +80,43 @@ def label_encoder(training_labels, testing_labels):
         y_test = []
         for label in testing_labels:
             y_test.append(int(float(label)))
-        y_train, y_test = np.array(y_train).reshape(-1, 1), np.array(y_test).reshape(-1, 1)
-        # Add class 0 in case it does not exist
-        classes = np.unique(y_train)
-        if 0 not in classes:
-            y_train = y_train - 1
-            y_test = y_test - 1
+
+        # Check if labels are consecutive
+        if sorted(y_train) == list(range(min(y_train), max(y_train) + 1)):
+            # Add class 0 in case it does not exist
+            y_train, y_test = np.array(y_train).reshape(-1, 1), np.array(y_test).reshape(-1, 1)
+            classes = np.unique(y_train)
+            if 0 not in classes:
+                y_train = y_train - 1
+                y_test = y_test - 1
+        else:
+            # Raise exception so each class is treated as a category
+            raise ValueError("The classes can be casted to integers but they are non consecutive numbers. Treating them as categories")
+
     except Exception:
         le = LabelEncoder()
         le.fit(np.concatenate((training_labels, testing_labels), axis=0))
         y_train = le.transform(training_labels)
         y_test = le.transform(testing_labels)
     return y_train, y_test
+
+
+def scale_data(X_train, X_test):
+    max = 1
+    min = 0
+    """maximums = X_train.max(axis=(0, 1))
+    minimums = X_train.min(axis=(0, 1))"""
+    data_max = X_train.max()
+    data_min = X_train.min()
+
+    # Min Max scale data between 0 and 1
+    X_train_scaled = (X_train - data_min) / (data_max - data_min)
+    X_train_scaled = X_train_scaled * (max - min) + min
+
+    X_test_scaled = (X_test - data_min) / (data_max - data_min)
+    X_test_scaled = X_test_scaled * (max - min) + min
+
+    return X_train_scaled, X_test_scaled
 
 
 def nun_retrieval(query, predicted_label, distance, n_neighbors, X_train, y_train, y_pred, from_true_labels=False):
@@ -110,10 +138,13 @@ def nun_retrieval(query, predicted_label, distance, n_neighbors, X_train, y_trai
     return distances, index, label
 
 
-def ucr_data_loader(dataset, store_path="../../data/UCR"):
+def ucr_data_loader(dataset, min_max_scaling, store_path="../../data/UCR"):
     X_train, y_train, X_test, y_test = UCR_UEA_datasets().load_dataset(dataset)
-    np.save(f"{store_path}/{dataset}/X_train.npy", X_train)
-    np.save(f"{store_path}/{dataset}/X_test.npy", X_test)
-    np.save(f"{store_path}/{dataset}/y_train.npy", y_train)
-    np.save(f"{store_path}/{dataset}/y_test.npy", y_test)
+    if X_train is not None:
+        np.save(f"{store_path}/{dataset}/X_train.npy", X_train)
+        np.save(f"{store_path}/{dataset}/X_test.npy", X_test)
+        np.save(f"{store_path}/{dataset}/y_train.npy", y_train)
+        np.save(f"{store_path}/{dataset}/y_test.npy", y_test)
+    if min_max_scaling:
+        X_train, X_test = scale_data(X_train, X_test)
     return X_train, y_train, X_test, y_test

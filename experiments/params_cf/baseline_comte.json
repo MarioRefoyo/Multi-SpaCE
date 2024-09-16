@@ -1,0 +1,11 @@
+{
+  "seed": 24,
+  "subset": true,
+  "subset_number": 100,
+
+  "number_distractors": 2,
+  "max_attempts": 1000,
+  "max_iter": 1000,
+  "restarts": 5,
+  "reg": 0.8
+}
