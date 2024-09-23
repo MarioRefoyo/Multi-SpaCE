@@ -1,0 +1,7 @@
+{
+  "seed": 24,
+  "subset": true,
+  "subset_number": 100,
+
+  "window_pct": 0.1
+}

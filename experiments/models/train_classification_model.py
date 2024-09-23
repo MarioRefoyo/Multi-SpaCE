@@ -60,7 +60,7 @@ DATASETS = [
     'Libras', 'LSST', 'MotorImagery', 'PenDigits', 'PEMS-SF', 'Phoneme', 'RacketSports',
     'SelfRegulationSCP1', 'SelfRegulationSCP2', 'SpokenArabicDigits', 'StandWalkJump'
 ]
-DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary', 'Epilepsy']
+DATASETS = ['CBF', 'ECG200', 'Gunpoint', 'Chinatown', 'Coffee']
 PARAMS_PATH = 'experiments/params_model_training/cls_basic_train.json'
 
 

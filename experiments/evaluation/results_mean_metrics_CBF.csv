@@ -1,0 +1,3 @@
+method;ii;nchanges;sparsity;L1;L2;proba;valid;nuns_valid;outlier_score;increase_outlier_score;subsequences;subsequences %;times
+abcf;453.74 ± 263.51;49.44 ± 23.47;0.39 ± 0.18;38.13 ± 18.82;6.71 ± 2.41;0.54 ± 0.09;1.0 ± 0.0;nan ± nan;0.99 ± 0.08;0.1 ± 0.08;2.11 ± 0.84;0.03 ± 0.01;0.37 ± 0.17
+ab_cf_old;453.74 ± 263.51;49.44 ± 23.47;0.39 ± 0.18;38.13 ± 18.82;6.71 ± 2.41;0.54 ± 0.09;1.0 ± 0.0;nan ± nan;0.99 ± 0.08;0.1 ± 0.08;2.11 ± 0.84;0.03 ± 0.01;-1.0 ± 0.0
