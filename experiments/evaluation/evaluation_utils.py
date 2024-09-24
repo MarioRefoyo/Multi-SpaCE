@@ -106,9 +106,10 @@ def calculate_metrics_for_dataset(dataset, methods, model_to_explain,
     results_df = pd.DataFrame()
     cf_solution_dirs = [fname for fname in os.listdir(f'./experiments/results/{dataset}/{model_to_explain}') if os.path.isdir(f'./experiments/results/{dataset}/{model_to_explain}/{fname}')]
     desired_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in cf_solution_dirs if cf_sol_dir in methods.keys()]
+    valid_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in desired_cf_solution_dirs if os.path.isfile(f'./experiments/results/{dataset}/{model_to_explain}/{cf_sol_dir}/counterfactuals.pickle')]
     method_cfs_dataset = {}
     common_test_indexes = list(range(len(X_test)))
-    for i, method_dir_name in enumerate(desired_cf_solution_dirs):
+    for i, method_dir_name in enumerate(valid_cf_solution_dirs):
         # Load solution cfs
         with open(f'./experiments/results/{dataset}/{model_to_explain}/{method_dir_name}/counterfactuals.pickle', 'rb') as f:
             print(method_dir_name)

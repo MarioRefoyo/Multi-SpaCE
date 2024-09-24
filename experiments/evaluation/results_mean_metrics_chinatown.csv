@@ -1,3 +1,4 @@
 method;ii;nchanges;sparsity;L1;L2;proba;valid;nuns_valid;outlier_score;increase_outlier_score;subsequences;subsequences %;times
 abcf;158.34 ± 94.01;13.95 ± 5.43;0.58 ± 0.23;1938.83 ± 920.83;609.33 ± 235.62;0.66 ± 0.1;1.0 ± 0.0;nan ± nan;0.67 ± 0.08;0.02 ± 0.02;1.82 ± 0.41;0.15 ± 0.03;0.49 ± 0.19
-ab_cf_old;158.34 ± 94.01;13.95 ± 5.43;0.58 ± 0.23;1938.83 ± 920.83;609.33 ± 235.62;0.66 ± 0.1;1.0 ± 0.0;nan ± nan;0.67 ± 0.08;0.02 ± 0.02;1.82 ± 0.41;0.15 ± 0.03;-1.0 ± 0.0
+glacier;158.34 ± 94.01;24.0 ± 0.0;1.0 ± 0.0;13499.01 ± 1656.41;3599.27 ± 431.99;0.78 ± 0.0;0.63 ± 0.49;nan ± nan;0.0 ± 0.0;0.0 ± 0.0;1.0 ± 0.0;0.08 ± 0.0;66.04 ± 20.34
+glacier_NoAE;158.34 ± 94.01;nan ± nan;nan ± nan;nan ± nan;nan ± nan;nan ± nan;0.0 ± 0.0;nan ± nan;nan ± nan;nan ± nan;nan ± nan;nan ± nan;40.27 ± 19.45
