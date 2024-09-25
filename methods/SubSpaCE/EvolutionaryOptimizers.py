@@ -6,7 +6,7 @@ import numpy as np
 
 class EvolutionaryOptimizer(ABC):
     def __init__(self, fitness_func, prediction_func, population_size, elite_number, offsprings_number, max_iter,
-                 init_pct, reinit,
+                 init_pct, reinit, init_random_mix_ratio,
                  invalid_penalization, alpha, beta, eta, gamma, sparsity_balancer,
                  feature_axis, individual_channel_search):
         # Asert elite numbers and replacement count do not surpass population size
@@ -37,6 +37,7 @@ class EvolutionaryOptimizer(ABC):
         self.individual_channel_search = individual_channel_search
 
         self.reinit = reinit
+        self.init_random_mix_ratio = init_random_mix_ratio
 
     def init_population(self, importance_heatmap=None):
         # Threat all channels as an individual instance (crossover and mutate them independently)
@@ -47,8 +48,7 @@ class EvolutionaryOptimizer(ABC):
                 (self.population_size,) + self.x_orig.shape
             )
             if importance_heatmap is not None:
-                mix_ratio = 0.6
-                inducted_data = (mix_ratio * random_data + (1 - mix_ratio) * importance_heatmap) / 2
+                inducted_data = (self.init_random_mix_ratio * random_data + (1 - self.init_random_mix_ratio) * importance_heatmap) / 2
             else:
                 inducted_data = random_data
         # Work on instance level, mutate and crossover all channels at the same time
@@ -60,8 +60,7 @@ class EvolutionaryOptimizer(ABC):
             )
             if importance_heatmap is not None:
                 importance_heatmap_mean = importance_heatmap.mean(axis=self.feature_axis-1).reshape(self.ts_length, 1)
-                mix_ratio = 0.6
-                inducted_data = (mix_ratio * random_data + (1 - mix_ratio) * importance_heatmap_mean) / 2
+                inducted_data = (self.init_random_mix_ratio * random_data + (1 - self.init_random_mix_ratio) * importance_heatmap_mean) / 2
             else:
                 inducted_data = random_data
 
@@ -334,11 +333,11 @@ class NSubsequenceEvolutionaryOptimizer(EvolutionaryOptimizer):
     def __init__(self, fitness_func, prediction_func,
                  population_size=100, elite_number=4, offsprings_number=96, max_iter=100,
                  change_subseq_mutation_prob=0.05, add_subseq_mutation_prob=0,
-                 init_pct=0.4, reinit=True,
+                 init_pct=0.4, reinit=True, init_random_mix_ratio=0.5,
                  invalid_penalization=100, alpha=0.2, beta=0.6, eta=0.2, gamma=0.25, sparsity_balancer=0.4,
                  feature_axis=2, individual_channel_search=False):
         super().__init__(fitness_func, prediction_func, population_size, elite_number, offsprings_number, max_iter,
-                         init_pct, reinit, invalid_penalization,
+                         init_pct, reinit, init_random_mix_ratio, invalid_penalization,
                          alpha, beta, eta, gamma, sparsity_balancer,
                          feature_axis, individual_channel_search)
         self.change_subseq_mutation_prob = change_subseq_mutation_prob

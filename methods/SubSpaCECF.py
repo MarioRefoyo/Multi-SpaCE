@@ -57,14 +57,15 @@ class SubSpaCECF(CounterfactualMethod):
 
 
 class SubSpaCECFv2(CounterfactualMethod):
-    def __init__(self, model, backend, outlier_calculator, grouped_channels_iter, individual_channels_iter,
+    def __init__(self, model, backend, outlier_calculator, fi_method, grouped_channels_iter, individual_channels_iter,
                  population_size=100, elite_number=4, offsprings_number=96,
                  change_subseq_mutation_prob=0.05, add_subseq_mutation_prob=0,
-                 init_pct=0.4, reinit=True,
+                 init_pct=0.4, reinit=True, init_random_mix_ratio=0.5, init_fi="none",
                  invalid_penalization=100, alpha=0.2, beta=0.6, eta=0.2, gamma=0.25, sparsity_balancer=0.4):
         super().__init__(model, backend)
 
         self.outlier_calculator = outlier_calculator
+        self.fi_method = fi_method
         self.grouped_channels_iter = grouped_channels_iter
         self.individual_channels_iter = individual_channels_iter
 
@@ -74,7 +75,7 @@ class SubSpaCECFv2(CounterfactualMethod):
                 fitness_function_final, self.predict_function,
                 population_size, elite_number, offsprings_number, grouped_channels_iter,
                 change_subseq_mutation_prob, add_subseq_mutation_prob,
-                init_pct, reinit,
+                init_pct, reinit, init_random_mix_ratio,
                 invalid_penalization, alpha, beta, eta, gamma, sparsity_balancer,
                 self.feature_axis, False
             )
@@ -83,7 +84,7 @@ class SubSpaCECFv2(CounterfactualMethod):
                 fitness_function_final, self.predict_function,
                 population_size, elite_number, offsprings_number, individual_channels_iter,
                 change_subseq_mutation_prob, add_subseq_mutation_prob,
-                init_pct, reinit,
+                init_pct, reinit, init_random_mix_ratio,
                 invalid_penalization, alpha, beta, eta, gamma, sparsity_balancer,
                 self.feature_axis, True
             )
@@ -115,8 +116,8 @@ class SubSpaCECFv2(CounterfactualMethod):
         x_cf = copy.deepcopy(np.expand_dims(x_orig, axis=0))
 
         # Calculate importance heatmap
-        heatmap_x_orig = calculate_heatmap(self.model, x_orig)
-        heatmap_nun = calculate_heatmap(self.model, nun_example)
+        heatmap_x_orig = self.fi_method.calculate_feature_importance(x_orig)
+        heatmap_nun = self.fi_method.calculate_feature_importance(nun_example)
         combined_heatmap = (heatmap_x_orig + heatmap_nun) / 2
 
         # Start optimization process:

@@ -17,16 +17,18 @@ from experiments.results.results_concatenator import concatenate_result_files
 
 from methods.SubSpaCECF import SubSpaCECFv2
 from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
+from methods.SubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, NoneFI, TSRFI
+
 
 DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
 # DATASETS = ['UWaveGestureLibrary', 'NATOPS']
-PARAMS_PATH = 'experiments/params_cf/subspacev2_new_baseline.json'
+PARAMS_PATH = 'experiments/params_cf/subspacev2_fi_initializers.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 OC_EXPERIMENT_NAME = 'ae_basic_train'
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
-POOL_SIZE = 10
+POOL_SIZE = 1
 
 
 def get_counterfactual_worker(sample_dict):
@@ -51,15 +53,25 @@ def get_counterfactual_worker(sample_dict):
     with open(f'experiments/models/{dataset}/{OC_EXPERIMENT_NAME}/outlier_calculator.pickle', 'rb') as f:
         outlier_calculator_worker = pickle.load(f)
 
+    # Get FI method for initialization
+    if params["init_fi"] == "none":
+        fi_method = NoneFI('tf')
+    elif params["init_fi"] == "gradcam++":
+        fi_method = GraCAMPlusFI('tf', model_worker)
+    elif (params["init_fi"] == "IG") or (params["init_fi"] == "SG") or (params["init_fi"] == "FO"):
+        fi_method = TSRFI('tf', model_worker, x_orig_samples_worker.shape[1], x_orig_samples_worker.shape[2], params["init_fi"])
+    else:
+        raise ValueError("The provided init_fi is not valid.")
+
     # Instantiate the Counterfactual Explanation method
     grouped_channels_iter, individual_channels_iter = params["max_iter"]
     cf_explainer = SubSpaCECFv2(
-        model_worker, 'tf', outlier_calculator_worker, grouped_channels_iter, individual_channels_iter,
+        model_worker, 'tf', outlier_calculator_worker, fi_method, grouped_channels_iter, individual_channels_iter,
         population_size=params["population_size"], elite_number=params["elite_number"],
         offsprings_number=params["offsprings_number"],
         change_subseq_mutation_prob=params["change_subseq_mutation_prob"],
         add_subseq_mutation_prob=params["add_subseq_mutation_prob"],
-        init_pct=params["init_pct"], reinit=params["reinit"],
+        init_pct=params["init_pct"], reinit=params["reinit"], init_random_mix_ratio=params["init_random_mix_ratio"],
         invalid_penalization=params["invalid_penalization"], alpha=params["alpha"], beta=params["beta"],
         eta=params["eta"], gamma=params["gamma"], sparsity_balancer=params["sparsity_balancer"],
     )
