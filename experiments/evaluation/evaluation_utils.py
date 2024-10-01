@@ -10,6 +10,7 @@ from tensorflow import keras
 from methods.outlier_calculators import AEOutlierCalculator
 from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, get_subsample
 from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
+from methods.MultiSubSpaCE.FitnessFunctions import fitness_function_mo
 
 
 def get_start_end_subsequence_positions(orig_change_mask):
@@ -100,7 +101,8 @@ def load_dataset_for_eval(dataset, model_to_explain, ae_name):
 
 
 def calculate_metrics_for_dataset(dataset, methods, model_to_explain,
-                                  data_tuple, original_classes, model, outlier_calculator, possible_nuns):
+                                  data_tuple, original_classes, model, outlier_calculator, possible_nuns,
+                                  mo_weights=None):
     X_train, y_train, X_test, y_test = data_tuple
 
     results_df = pd.DataFrame()
@@ -132,7 +134,8 @@ def calculate_metrics_for_dataset(dataset, methods, model_to_explain,
         method_name = methods[method_dir_name]
         method_metrics = calculate_method_metrics(model, outlier_calculator,
                                                   X_test[method_test_indexes], nuns[method_test_indexes], method_cfs,
-                                                  original_classes[method_test_indexes], method_name, order=i + 1)
+                                                  original_classes[method_test_indexes], method_name,
+                                                  mo_weights=mo_weights, order=i + 1)
         method_metrics.insert(0, "ii", method_test_indexes)
         results_df = pd.concat([results_df, method_metrics])
         method_cfs_dataset[method_name] = method_cfs
@@ -176,10 +179,19 @@ def calculate_method_valids(model, X_test, counterfactuals, original_classes):
 
 
 def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_in, original_classes,
-                             method_name, order=None):
+                             method_name, mo_weights=None, order=None):
     # Get the results and separate them in counterfactuals and execution times
     solutions = copy.deepcopy(solutions_in)
-    counterfactuals = [solution['cf'] for solution in solutions]
+    # Check if the solutions are single or multiple solutions
+    if 'cfs' in solutions[0]:
+        # If there are no mo_weights then there is no way to compare the counterfactuals
+        if mo_weights is None:
+            raise ValueError("There are multiple counterfactuals for a single input instance. "
+                             "Weights for objectives must be passed to order the counterfactuals using a "
+                             "specific utility function")
+        counterfactuals = [solution['cfs'] for solution in solutions]
+    else:
+        counterfactuals = [solution['cf'] for solution in solutions]
     execution_times = [solution['time'] for solution in solutions]
 
     # Get size of the input
@@ -192,13 +204,38 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
     l2s = []
     pred_probas = []
     valids = []
+    outlier_scores = []
+    increase_outlier_scores = []
     n_subsequences = []
+    if nuns[0] is not None:
+        desired_classes = np.argmax(model.predict(nuns, verbose=0), axis=1)
+    else:
+        desired_classes = None
     for i in tqdm(range(len(X_test))):
-
-        counterfactuals[i] = counterfactuals[i].reshape(length, n_channels)
+        counterfactuals_i = counterfactuals[i]
+        x_orig_i = X_test[i]
+        # If there are multiple counterfactuals apply mo_weights
+        if counterfactuals_i.shape[0] > 1:
+            desired_class = desired_classes[i]
+            # Sort by objective weights and take the best
+            predicted_probs = model.predict(counterfactuals_i, verbose=0)
+            # Get outlier scores
+            if outlier_calculator is not None:
+                aux_outlier_scores = outlier_calculator.get_outlier_scores(counterfactuals_i)
+                aux_increase_outlier_score = aux_outlier_scores - outlier_calculator.get_outlier_scores(x_orig_i)[0]
+            else:
+                aux_increase_outlier_score = np.zeros((predicted_probs.shape[0], 1))
+            # Get fitness scores
+            change_masks = (counterfactuals_i != x_orig_i).astype(int)
+            objective_fitness = fitness_function_mo(change_masks, predicted_probs, desired_class, aux_increase_outlier_score, 100)
+            fitness = (objective_fitness * mo_weights).sum(axis=1)
+            best_cf_i = np.argsort(fitness)[-1]
+            counterfactual_i = counterfactuals_i[best_cf_i].reshape(length, n_channels)
+        else:
+            counterfactual_i = counterfactuals_i[0].reshape(length, n_channels)
 
         # Predict counterfactual class probability
-        preds = model.predict(counterfactuals[i].reshape(-1, length, n_channels), verbose=0)
+        preds = model.predict(counterfactual_i.reshape(-1, length, n_channels), verbose=0)
         pred_class = np.argmax(preds, axis=1)[0]
 
         # Valids
@@ -212,16 +249,23 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
             # Calculate l0
             # change_mask = (X_test[i] != counterfactuals[i]).astype(int)
             # print(X_test[i].shape, X_train[nuns_idx[i]].shape, counterfactuals[i].shape)
-            change_mask = calculate_change_mask(X_test[i], counterfactuals[i], x_nun=nuns[i], verbose=0)
+            change_mask = calculate_change_mask(x_orig_i, counterfactual_i, x_nun=nuns[i], verbose=0)
             nchanges.append(change_mask.sum())
 
             # Calculate l1
-            l1 = np.linalg.norm((X_test[i].flatten() - counterfactuals[i].flatten()), ord=1)
+            l1 = np.linalg.norm((x_orig_i.flatten() - counterfactual_i.flatten()), ord=1)
             l1s.append(l1)
 
             # Calculate l2
-            l2 = np.linalg.norm((X_test[i].flatten() - counterfactuals[i].flatten()), ord=2)
+            l2 = np.linalg.norm((x_orig_i.flatten() - counterfactual_i.flatten()), ord=2)
             l2s.append(l2)
+
+            # Calculate outlier scores
+            outlier_score_orig = outlier_calculator.get_outlier_scores(x_orig_i)[0]
+            outlier_score = outlier_calculator.get_outlier_scores(counterfactual_i)[0]
+            increase_outlier_score = outlier_score - outlier_score_orig
+            outlier_scores.append(outlier_score)
+            increase_outlier_scores.append(increase_outlier_score)
 
             # Number of sub-sequences
             # print(change_mask.shape)
@@ -234,6 +278,8 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
             nchanges.append(np.nan)
             l1s.append(np.nan)
             l2s.append(np.nan)
+            outlier_scores.append(np.nan)
+            increase_outlier_scores.append(np.nan)
             n_subsequences.append(np.nan)
 
     # Valid NUN classes
@@ -245,18 +291,8 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
         valid_nuns = nun_pred_class != original_classes
 
     # Outlier scores
-    # Increase in outlier score
-    outlier_scores = outlier_calculator.get_outlier_scores(np.array(counterfactuals).reshape(-1, length, n_channels))
-    outlier_scores_orig = outlier_calculator.get_outlier_scores(X_test)
-    # outlier_scores_nuns = outlier_calculator.get_outlier_scores(nuns)
-    increase_os = outlier_scores - outlier_scores_orig
+    increase_os = np.array(increase_outlier_scores)
     increase_os[increase_os < 0] = 0
-    # Put to nan all the non valid cfs
-    valids_array = np.array(valids).flatten()
-    increase_os = increase_os.flatten()
-    increase_os[valids_array == False] = np.nan
-    outlier_scores = outlier_scores.flatten()
-    outlier_scores[valids_array == False] = np.nan
 
     # Create dataframe
     results = pd.DataFrame()
@@ -267,8 +303,8 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
     results["proba"] = pred_probas
     results["valid"] = valids
     results["nuns_valid"] = valid_nuns
-    results["outlier_score"] = outlier_scores.tolist()
-    results["increase_outlier_score"] = increase_os.tolist()
+    results["outlier_score"] = outlier_scores
+    results["increase_outlier_score"] = increase_os
     results['subsequences'] = n_subsequences
     results['subsequences %'] = np.array(n_subsequences) / ((length * n_channels) / 2)
     results['times'] = execution_times

@@ -60,7 +60,7 @@ class SubSpaCECFv2(CounterfactualMethod):
     def __init__(self, model, backend, outlier_calculator, fi_method, grouped_channels_iter, individual_channels_iter,
                  population_size=100, elite_number=4, offsprings_number=96,
                  change_subseq_mutation_prob=0.05, add_subseq_mutation_prob=0,
-                 init_pct=0.4, reinit=True, init_random_mix_ratio=0.5, init_fi="none",
+                 init_pct=0.4, reinit=True, init_random_mix_ratio=0.5,
                  invalid_penalization=100, alpha=0.2, beta=0.6, eta=0.2, gamma=0.25, sparsity_balancer=0.4):
         super().__init__(model, backend)
 

@@ -15,14 +15,14 @@ from experiments.experiment_utils import local_data_loader, label_encoder, nun_r
     ucr_data_loader, load_parameters_from_json, generate_settings_combinations, get_subsample
 from experiments.results.results_concatenator import concatenate_result_files
 
-from methods.SubSpaCECF import SubSpaCECFv2
+from methods.MultiSubSpaCECF import MultiSubSpaCECF
 from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
-from methods.SubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, NoneFI, TSRFI
+from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, NoneFI, TSRFI
 
 
 DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
 # DATASETS = ['UWaveGestureLibrary', 'NATOPS']
-PARAMS_PATH = 'experiments/params_cf/subspacev2_fi_initializers.json'
+PARAMS_PATH = 'experiments/params_cf/multisubspace_test.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 OC_EXPERIMENT_NAME = 'ae_basic_train'
 MULTIPROCESSING = True
@@ -65,15 +65,13 @@ def get_counterfactual_worker(sample_dict):
 
     # Instantiate the Counterfactual Explanation method
     grouped_channels_iter, individual_channels_iter = params["max_iter"]
-    cf_explainer = SubSpaCECFv2(
+    cf_explainer = MultiSubSpaCECF(
         model_worker, 'tf', outlier_calculator_worker, fi_method, grouped_channels_iter, individual_channels_iter,
-        population_size=params["population_size"], elite_number=params["elite_number"],
-        offsprings_number=params["offsprings_number"],
+        population_size=params["population_size"],
         change_subseq_mutation_prob=params["change_subseq_mutation_prob"],
         add_subseq_mutation_prob=params["add_subseq_mutation_prob"],
         init_pct=params["init_pct"], reinit=params["reinit"], init_random_mix_ratio=params["init_random_mix_ratio"],
-        invalid_penalization=params["invalid_penalization"], alpha=params["alpha"], beta=params["beta"],
-        eta=params["eta"], gamma=params["gamma"], sparsity_balancer=params["sparsity_balancer"],
+        invalid_penalization=params["invalid_penalization"],
     )
 
     # Generate counterfactuals
