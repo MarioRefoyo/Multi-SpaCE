@@ -17,13 +17,25 @@ from experiments.results.results_concatenator import concatenate_result_files
 
 from methods.DiscoXCF import DiscoXCF
 
-DATASETS = ['UWaveGestureLibrary']
+DATASETS = [
+    "BasicMotions", "NATOPS", "UWaveGestureLibrary",
+    'ArticularyWordRecognition', 'Cricket', 'Epilepsy', 'PenDigits', 'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
+]
+DATASETS = [
+    # 'ECG200', 'Gunpoint', 'Coffee',
+    # 'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA',
+    # 'HandOutlines',
+    # 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000',
+    'CinCECGTorso',
+    # 'NonInvasiveFatalECGThorax2', # 'CBF'
+]
 PARAMS_PATH = 'experiments/params_cf/baseline_discox.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 1
 POOL_SIZE = 10
+INDEXES_TO_CALCULATE = None
 
 
 def get_counterfactual_worker(sample_dict):
@@ -86,20 +98,30 @@ def experiment_dataset(dataset, exp_name, params):
     # Classification report
     print(classification_report(y_test, y_pred_test))
 
+    if INDEXES_TO_CALCULATE is not None:
+        if THREAD_SAMPLES != 1:
+            raise ValueError("Using specific indexes to calculate counterfactuals "
+                             "does not support multiple instances per thread.")
+        first_sample_list = copy.deepcopy(INDEXES_TO_CALCULATE)
+    else:
+        first_sample_list = list(range(I_START, len(X_test), THREAD_SAMPLES))
+
     # Get counterfactuals
     if MULTIPROCESSING:
         # Prepare dict to iterate optimization problem
         samples = []
-        for i in range(I_START, len(X_test), THREAD_SAMPLES):
+        for i in range(len(first_sample_list)):
             # Init optimizer
-            x_orig_samples = X_test[i:i + THREAD_SAMPLES]
+            first_sample = first_sample_list[i]
+            end_sample = first_sample_list[i] + THREAD_SAMPLES
+            x_orig_samples = X_test[first_sample:end_sample]
 
             sample_dict = {
                 "dataset": dataset,
                 "train_data_tuple": (X_train, y_train),
                 "exp_name": exp_name,
                 "params": params,
-                "first_sample_i": i,
+                "first_sample_i": first_sample_list[i],
                 "x_orig_samples": x_orig_samples,
             }
             samples.append(sample_dict)

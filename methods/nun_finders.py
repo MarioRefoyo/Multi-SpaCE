@@ -127,10 +127,11 @@ class IndependentNUNFinder(NUNFinder):
                 knn = KNeighborsTimeSeries(n_neighbors=n_neighbors, metric=distance)
 
                 same_class_index = self.df_index[self.df_index[self.label_name] == c]
-                knn.fit(self.X_train[same_class_index.index.values, :, feature])
+                if len(same_class_index) > 0:
+                    knn.fit(self.X_train[same_class_index.index.values, :, feature])
 
-                same_class_index_dict[c] = same_class_index
-                feature_knn_dict[feature] = knn
+                    same_class_index_dict[c] = same_class_index
+                    feature_knn_dict[feature] = knn
             classes_feature_knn_dict[c] = feature_knn_dict
         self.same_class_index_dict = same_class_index_dict
         self.classes_feature_knn_dict = classes_feature_knn_dict

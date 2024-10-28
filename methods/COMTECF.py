@@ -45,7 +45,13 @@ class COMTECF(CounterfactualMethod):
             x_cf, predicted_label = opt.explain(x_orig, to_maximize=desired_target)
             x_cf = np.swapaxes(x_cf, 2, 1)
         else:
-            x_cf, predicted_label = opt.explain(x_orig, to_maximize=desired_target)
+            try:
+                x_cf, predicted_label = opt.explain(x_orig, to_maximize=desired_target)
+            except AttributeError as msg:
+                print(f'{msg}')
+                print(f'COMTE failed to find a NUN so original instance is returned')
+                x_cf = copy.deepcopy(x_orig)
+
         result = {'cf': x_cf}
 
         return result

@@ -7,6 +7,7 @@ import shutil
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+from tensorflow.python.framework.errors_impl import ResourceExhaustedError
 from matplotlib import pyplot as plt
 
 from experiments.experiment_utils import (local_data_loader, ucr_data_loader, label_encoder, scale_data,
@@ -60,7 +61,30 @@ DATASETS = [
     'Libras', 'LSST', 'MotorImagery', 'PenDigits', 'PEMS-SF', 'Phoneme', 'RacketSports',
     'SelfRegulationSCP1', 'SelfRegulationSCP2', 'SpokenArabicDigits', 'StandWalkJump'
 ]
-DATASETS = ['CBF', 'ECG200', 'Gunpoint', 'Chinatown', 'Coffee']
+DATASETS = [
+    # 'BeetleFly', # Doubt (0.79) and bad reconstructions
+    # 'ChlorineConcentration', 'CinCECGTorso',
+    'DistalPhalanxOutlineCorrect',
+    'ECG5000',
+    'ECGFiveDays', # Doubt bad reconstructions
+    'FaceAll', # Review reconstructions
+    'FaceFour', # BAD RECONSTRUCTIONS
+    'FacesUCR', 'Fish', 'FordA',
+    'HandOutlines', 'ItalyPowerDemand',
+    'MiddlePhalanxOutlineCorrect',
+    'MoteStrain', # BAD RECONSTRUCTIONS
+    'NonInvasiveFatalECGThorax1', 'NonInvasiveFatalECGThorax2',
+    'PhalangesOutlinesCorrect', 'Plane',
+    'ProximalPhalanxOutlineAgeGroup', 'ProximalPhalanxOutlineCorrect',
+    'SonyAIBORobotSurface2', # BAD RECONSTRUCTIONS
+    'StarLightCurves', 'Strawberry', 'SwedishLeaf',
+    'SyntheticControl',
+    'Trace', 'TwoPatterns',
+    'ToeSegmentation2', # Doubt (0.79)
+    'Wafer',
+    'Yoga', # Doubt (0.79)
+]
+# DATASETS = ['CBF', 'ECG200', 'Gunpoint', 'Chinatown', 'Coffee']
 PARAMS_PATH = 'experiments/params_model_training/ae_basic_train.json'
 
 
@@ -269,7 +293,7 @@ if __name__ == "__main__":
                     experiment_hash,
                     experiment_params
                 )
-            except (ValueError, FileNotFoundError, TypeError) as msg:
+            except (ValueError, FileNotFoundError, TypeError, ResourceExhaustedError) as msg:
                 print(msg)
 
         # Compare performance of combinations and select the best one

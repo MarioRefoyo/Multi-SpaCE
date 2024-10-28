@@ -85,7 +85,26 @@ class MOEvolutionaryOptimizer(ABC):
             # Get population
             random_idx = np.random.randint(len(init_mask), size=self.population_size)
             population = init_mask[random_idx]
-            population = self.mutate(population)
+
+            # Perform a simple mutation to ensure diversity in the first iteration
+            number = population.shape[0]
+            n_features = population.shape[self.feature_axis]
+            if self.feature_axis == 2:
+                # Get sample population
+                adapted_population = np.swapaxes(population, 2, 1)
+            else:
+                adapted_population = population
+            adapted_number = number * n_features
+            adapted_population = adapted_population.reshape(adapted_number, -1)
+
+            mutated_population = self.mutate(adapted_population)
+
+            # Get final offsprings (matching original dimensionality)
+            adapted_population = mutated_population.reshape(number, n_features, -1)
+            if self.feature_axis == 2:
+                population = np.swapaxes(adapted_population, 2, 1)
+            else:
+                population = adapted_population
 
         else:
             # Init masks randomly
@@ -545,6 +564,53 @@ class NSubsequenceEvolutionaryOptimizer(MOEvolutionaryOptimizer):
         mutated_sub_population = self.extend_mutation(mutated_sub_population, self.change_subseq_mutation_prob)
         if self.add_subseq_mutation_prob > 0:
             mutated_sub_population = self.add_subsequence_mutation(mutated_sub_population, self.add_subseq_mutation_prob)
+        return mutated_sub_population
+
+
+class SubsequencePruningEvolutionaryOptimizer(MOEvolutionaryOptimizer):
+
+    def __init__(self, fitness_func, prediction_func,
+                 population_size=100, max_iter=100,
+                 remove_subseq_mutation_prob=0.05,
+                 init_pct=0.4, reinit=False, init_random_mix_ratio=0.5,
+                 invalid_penalization=100,
+                 feature_axis=2):
+
+        # By definition, pruning works individually for each channel
+        individual_channel_search = True
+        super().__init__(
+            fitness_func, prediction_func, population_size, max_iter,
+            init_pct, reinit, init_random_mix_ratio,
+            invalid_penalization,
+            feature_axis, individual_channel_search
+        )
+        self.remove_subseq_mutation_prob = remove_subseq_mutation_prob
+
+    @staticmethod
+    def remove_subsequence_mutation(population, mutation_prob):
+
+        # Get mask of the subsequence begginings
+        subseq_diff = np.diff(population, 1, prepend=0, append=0)
+        mask_beginnings = np.in1d(subseq_diff, 1).reshape(subseq_diff.shape)
+        end_point_mask = np.in1d(subseq_diff, -1).reshape(subseq_diff.shape)
+
+        # ------ Generate mutation
+        # Get random matrix
+        random_mutations = (np.random.uniform(0, 1, (population.shape[0], population.shape[1]+1)) < mutation_prob).astype(int)
+        # Get mutated population
+        valid_mutations = np.zeros((population.shape[0], population.shape[1] + 1)).astype(int)
+        valid_mutations[mask_beginnings] = random_mutations[mask_beginnings]
+        valid_mutations[end_point_mask] = -random_mutations[mask_beginnings]
+
+        subseq_diff_mutated = subseq_diff - valid_mutations
+        mutated_population = np.cumsum(subseq_diff_mutated, axis=1)
+        mutated_population = mutated_population[:, :-1]
+
+        return mutated_population
+
+    def mutate(self, sub_population):
+        # Compute mutation values
+        mutated_sub_population = self.remove_subsequence_mutation(sub_population, self.remove_subseq_mutation_prob)
         return mutated_sub_population
 
 

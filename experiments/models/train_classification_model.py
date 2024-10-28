@@ -60,7 +60,31 @@ DATASETS = [
     'Libras', 'LSST', 'MotorImagery', 'PenDigits', 'PEMS-SF', 'Phoneme', 'RacketSports',
     'SelfRegulationSCP1', 'SelfRegulationSCP2', 'SpokenArabicDigits', 'StandWalkJump'
 ]
-DATASETS = ['CBF', 'ECG200', 'Gunpoint', 'Chinatown', 'Coffee']
+# Univariate Datasets
+DATASETS = [
+    'Adiac', 'ArrowHead', 'Beef', 'BeetleFly', 'BirdChicken', 'Car', 'CBF',
+    'ChlorineConcentration', 'CinCECGTorso', 'Coffee', 'Computers',
+    'DiatomSizeReduction',
+    'DistalPhalanxOutlineCorrect', 'DistalPhalanxOutlineAgeGroup',
+    'DistalPhalanxTW', 'Earthquakes', 'ECG200', 'ECG5000', 'ECGFiveDays',
+    'ElectricDevices', 'FaceAll', 'FaceFour', 'FacesUCR', 'FiftyWords', 'Fish',
+    'FordA', 'FordB', 'GunPoint', 'Ham', 'HandOutlines', 'Haptics', 'Herring',
+    'InlineSkate', 'InsectWingbeatSound', 'ItalyPowerDemand',
+    'LargeKitchenAppliances', 'Lightning2', 'Lightning7', 'Mallat', 'Meat',
+    'MedicalImages', 'MiddlePhalanxOutlineCorrect',
+    'MiddlePhalanxOutlineAgeGroup', 'MiddlePhalanxTW', 'MoteStrain',
+    'NonInvasiveFatalECGThorax1', 'NonInvasiveFatalECGThorax2', 'OliveOil',
+    'OSULeaf', 'PhalangesOutlinesCorrect', 'Phoneme', 'Plane',
+    'ProximalPhalanxOutlineCorrect', 'ProximalPhalanxOutlineAgeGroup',
+    'ProximalPhalanxTW', 'RefrigerationDevices', 'ScreenType', 'ShapeletSim',
+    'ShapesAll', 'SmallKitchenAppliances', 'SonyAIBORobotSurface1',
+    'SonyAIBORobotSurface2', 'StarLightCurves', 'Strawberry', 'SwedishLeaf',
+    'Symbols', 'SyntheticControl', 'ToeSegmentation1', 'ToeSegmentation2',
+    'Trace', 'TwoLeadECG', 'TwoPatterns',
+    'Wafer', 'Wine', 'WordSynonyms', 'Worms', 'WormsTwoClass', 'Yoga'
+]
+
+# DATASETS = ['CBF', 'ECG200', 'Gunpoint', 'Chinatown', 'Coffee']
 PARAMS_PATH = 'experiments/params_model_training/cls_basic_train.json'
 
 

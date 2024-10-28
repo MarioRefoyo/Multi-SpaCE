@@ -17,13 +17,14 @@ from experiments.results.results_concatenator import concatenate_result_files
 
 from methods.COMTECF import COMTECF
 
-DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
+DATASETS = ['PEMS-SF']
 PARAMS_PATH = 'experiments/params_cf/baseline_comte.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 MULTIPROCESSING = True
 I_START = 0
-THREAD_SAMPLES = 5
-POOL_SIZE = 10
+THREAD_SAMPLES = 1
+POOL_SIZE = 6
+INDEXES_TO_CALCULATE = [0, 1, 2, 3, 4, 5, 6, 8, 93, 97, 99]
 
 
 def get_counterfactual_worker(sample_dict):
@@ -88,6 +89,15 @@ def experiment_dataset(dataset, exp_name, params):
     # Classification report
     print(classification_report(y_test, y_pred_test))
 
+    if INDEXES_TO_CALCULATE is not None:
+        if THREAD_SAMPLES != 1:
+            raise ValueError("Using specific indexes to calculate counterfactuals "
+                             "does not support multiple instances per thread.")
+        X_test, y_test = X_test[INDEXES_TO_CALCULATE], y_test[INDEXES_TO_CALCULATE]
+        first_sample_list = copy.deepcopy(INDEXES_TO_CALCULATE)
+    else:
+        first_sample_list = list(range(I_START, len(X_test), THREAD_SAMPLES))
+
     # Get counterfactuals
     if MULTIPROCESSING:
         # Prepare dict to iterate optimization problem
@@ -101,7 +111,7 @@ def experiment_dataset(dataset, exp_name, params):
                 "train_data_tuple": (X_train, y_train),
                 "exp_name": exp_name,
                 "params": params,
-                "first_sample_i": i,
+                "first_sample_i": first_sample_list[i],
                 "x_orig_samples": x_orig_samples,
             }
             samples.append(sample_dict)

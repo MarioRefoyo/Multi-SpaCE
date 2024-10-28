@@ -55,7 +55,7 @@ def calculate_change_mask(x_orig, x_cf, x_nun=None, verbose=0):
         # Calculate adjusted change mask
         change_mask = (new_x_orig != x_cf).astype(int)
     else:
-        change_mask = orig_change_mask
+        change_mask = orig_change_mask.reshape(x_orig.shape, order='F')
 
     return change_mask
 
@@ -155,6 +155,138 @@ def calculate_metrics_for_dataset(dataset, methods, model_to_explain,
     return mean_std_df, results_df, method_cfs_dataset, common_test_indexes
 
 
+def get_method_objectives(model, outlier_calculator, X_test, nuns, solutions_in, original_classes):
+    # Get the results and separate them in counterfactuals and execution times
+    solutions = copy.deepcopy(solutions_in)
+    # Check if the solutions are single or multiple solutions
+    if 'cfs' in solutions[0]:
+        counterfactuals = [solution['cfs'] for solution in solutions]
+    else:
+        counterfactuals = [solution['cf'] for solution in solutions]
+    execution_times = [solution['time'] for solution in solutions]
+
+    # Get size of the input
+    length = X_test.shape[1]
+    n_channels = X_test.shape[2]
+
+    all_objectives_list = []
+    for i in tqdm(range(len(X_test))):
+        x_orig_i = X_test[i]
+        counterfactuals_i = counterfactuals[i]
+
+        # Calculate valids
+        predicted_logits = model.predict(counterfactuals_i, verbose=0)
+        predicted_classes = np.argmax(predicted_logits, axis=1)
+        valids = (predicted_classes != original_classes[i]).astype(int)
+
+        # Filter counterfactuals based on valids
+        valid_idx = np.where(valids == 1)[0]
+        if len(valid_idx) == 0:
+            # Calculate objectives dict
+            sample_objectives_dict = {
+                "valids": [0],
+                "desired_class_prob": [np.nan],
+                "sparsity": [np.nan],
+                "subsequences": [np.nan],
+                "IoS": [np.nan],
+                "execution_time": execution_times[i]
+            }
+
+        else:
+            if len(valid_idx) < len(counterfactuals_i):
+                raise ValueError("Not all cfs in front all valid")
+
+            else:
+                valid_counterfactuals_i = counterfactuals_i[valid_idx]
+                n_counterfactuals_i = valid_counterfactuals_i.shape[0]
+
+                # Calculate desired class based on NUN
+                if nuns[i] is not None:
+                    desired_class = np.argmax(model.predict(np.expand_dims(nuns[i], axis=0), verbose=0), axis=1)[0]
+                else:
+                    predicted_cf_classes = np.argmax(model.predict(valid_counterfactuals_i, verbose=0), axis=1)
+                    vals, counts = np.unique(predicted_cf_classes, return_counts=True)
+                    index = np.argmax(counts)
+                    desired_class = vals[index]
+
+                # Calculate predicted probabilities
+                desired_predicted_probs = predicted_logits[:, desired_class]
+
+                # Get change mask (L0)
+                percentual_proximity = np.abs(x_orig_i - valid_counterfactuals_i) / np.abs(x_orig_i + 1e-6)
+                change_masks = (percentual_proximity > 0.001).astype(int)
+                sparsity = change_masks.sum(axis=(1, 2)) / (length * n_channels)
+
+                # Subsequences
+                subsequences = np.count_nonzero(np.diff(change_masks, prepend=0, axis=1) == 1, axis=(1, 2))
+                feature_avg_subsequences = subsequences / n_channels
+                subsequences_pct = feature_avg_subsequences / (length // 2)
+
+                # Calculate outlier scores
+                if outlier_calculator is not None:
+                    aux_outlier_scores = outlier_calculator.get_outlier_scores(valid_counterfactuals_i)
+                    aux_increase_outlier_score = aux_outlier_scores - outlier_calculator.get_outlier_scores(x_orig_i)[0]
+                else:
+                    aux_increase_outlier_score = np.zeros((n_counterfactuals_i, 1))
+                aux_increase_outlier_score[aux_increase_outlier_score < 0] = 0
+
+                # Calculate objectives dict
+                sample_objectives_dict = {
+                    "valids": valids,
+                    "desired_class_prob": desired_predicted_probs,
+                    "sparsity": sparsity,
+                    "subsequences": subsequences_pct,
+                    "IoS": aux_increase_outlier_score,
+                    "execution_time": execution_times[i]
+                }
+        # Append to list
+        all_objectives_list.append(sample_objectives_dict)
+    return all_objectives_list
+
+
+def obtain_cfs_objectives(dataset, methods, model_to_explain,
+                          data_tuple, original_classes, model, outlier_calculator, possible_nuns):
+
+    X_train, y_train, X_test, y_test = data_tuple
+
+    cf_solution_dirs = [fname for fname in os.listdir(f'./experiments/results/{dataset}/{model_to_explain}') if os.path.isdir(f'./experiments/results/{dataset}/{model_to_explain}/{fname}')]
+    desired_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in cf_solution_dirs if cf_sol_dir in methods.keys()]
+    valid_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in desired_cf_solution_dirs if os.path.isfile(f'./experiments/results/{dataset}/{model_to_explain}/{cf_sol_dir}/counterfactuals.pickle')]
+    method_cfs_dataset_dict = {}
+    method_objectives_dataset_dict = {}
+    common_test_indexes = list(range(len(X_test)))
+    for i, method_dir_name in enumerate(valid_cf_solution_dirs):
+        # Load solution cfs
+        with open(f'./experiments/results/{dataset}/{model_to_explain}/{method_dir_name}/counterfactuals.pickle', 'rb') as f:
+            print(method_dir_name)
+            method_cfs = pickle.load(f)
+        # Load params
+        with open(f'./experiments/results/{dataset}/{model_to_explain}/{method_dir_name}/params.json', 'r') as json_file:
+            method_params = json.load(json_file)
+            method_test_indexes = method_params["X_test_indexes"]
+
+        # Get nuns used by the method depending on the name
+        if "independent_channels_nun" in method_params:
+            if method_params["independent_channels_nun"]:
+                nuns = possible_nuns["iknn"]
+            else:
+                nuns = possible_nuns["gknn"]
+        else:
+            nuns = np.array([None]*len(X_test))
+
+        # Calculate metrics
+        method_name = methods[method_dir_name]
+        method_objectives = get_method_objectives(
+            model, outlier_calculator,
+            X_test[method_test_indexes], nuns[method_test_indexes], method_cfs,
+            original_classes[method_test_indexes]
+        )
+        method_objectives_dataset_dict[method_name] = method_objectives
+        method_cfs_dataset_dict[method_name] = method_cfs
+
+    return method_objectives_dataset_dict, method_cfs_dataset_dict, common_test_indexes
+
+
 def calculate_method_valids(model, X_test, counterfactuals, original_classes):
     # Get size of the input
     length = X_test.shape[1]
@@ -207,6 +339,7 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
     outlier_scores = []
     increase_outlier_scores = []
     n_subsequences = []
+    best_cf_is = []
     if nuns[0] is not None:
         desired_classes = np.argmax(model.predict(nuns, verbose=0), axis=1)
     else:
@@ -231,7 +364,9 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
             fitness = (objective_fitness * mo_weights).sum(axis=1)
             best_cf_i = np.argsort(fitness)[-1]
             counterfactual_i = counterfactuals_i[best_cf_i].reshape(length, n_channels)
+            best_cf_is.append(best_cf_i)
         else:
+            best_cf_is.append(0)
             counterfactual_i = counterfactuals_i[0].reshape(length, n_channels)
 
         # Predict counterfactual class probability
@@ -309,6 +444,7 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
     results['subsequences %'] = np.array(n_subsequences) / ((length * n_channels) / 2)
     results['times'] = execution_times
     results['method'] = method_name
+    results['best cf index'] = best_cf_is
     if order is not None:
         results['order'] = order
 

@@ -20,9 +20,16 @@ from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
 from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, NoneFI, TSRFI
 
 
-DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
-# DATASETS = ['UWaveGestureLibrary', 'NATOPS']
-PARAMS_PATH = 'experiments/params_cf/multisubspace_test.json'
+DATASETS = [
+    'BasicMotions', 'NATOPS', 'UWaveGestureLibrary'
+    'ArticularyWordRecognition', 'Cricket', 'Epilepsy', 'PenDigits', 'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
+]
+DATASETS = [
+    # 'ECG200', 'Gunpoint', 'Coffee',
+    # 'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', # 'HandOutlines',
+    'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso', 'NonInvasiveFatalECGThorax2', # 'CBF',
+]
+PARAMS_PATH = 'experiments/params_cf/multisubspace_pruning.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 OC_EXPERIMENT_NAME = 'ae_basic_train'
 MULTIPROCESSING = True
@@ -64,12 +71,14 @@ def get_counterfactual_worker(sample_dict):
         raise ValueError("The provided init_fi is not valid.")
 
     # Instantiate the Counterfactual Explanation method
-    grouped_channels_iter, individual_channels_iter = params["max_iter"]
+    grouped_channels_iter, individual_channels_iter, pruning_iter = params["max_iter"]
     cf_explainer = MultiSubSpaCECF(
-        model_worker, 'tf', outlier_calculator_worker, fi_method, grouped_channels_iter, individual_channels_iter,
+        model_worker, 'tf', outlier_calculator_worker, fi_method,
+        grouped_channels_iter, individual_channels_iter, pruning_iter,
         population_size=params["population_size"],
         change_subseq_mutation_prob=params["change_subseq_mutation_prob"],
         add_subseq_mutation_prob=params["add_subseq_mutation_prob"],
+        remove_subseq_mutation_prob=params["remove_subseq_mutation_prob"],
         init_pct=params["init_pct"], reinit=params["reinit"], init_random_mix_ratio=params["init_random_mix_ratio"],
         invalid_penalization=params["invalid_penalization"],
     )

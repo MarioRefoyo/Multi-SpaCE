@@ -18,8 +18,12 @@ from experiments.results.results_concatenator import concatenate_result_files
 from methods.ABCF import ABCF
 
 
-DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
-# DATASETS = ['CBF', 'ECG200', 'Gunpoint', 'Chinatown', 'Coffee']
+# DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
+DATASETS = [
+    # 'ECG200', 'Gunpoint', 'Coffee',
+    'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
+    'CBF', 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso', 'NonInvasiveFatalECGThorax2'
+]
 PARAMS_PATH = 'experiments/params_cf/baseline_abcf.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 MULTIPROCESSING = True
