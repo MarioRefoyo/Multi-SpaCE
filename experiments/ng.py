@@ -29,7 +29,7 @@ DATASETS = [
 PARAMS_PATH = 'experiments/params_cf/baseline_ng.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 MULTIPROCESSING = True
-I_START = 0
+I_START = 45
 THREAD_SAMPLES = 5
 POOL_SIZE = 10
 

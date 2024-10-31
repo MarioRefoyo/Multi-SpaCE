@@ -390,7 +390,12 @@ class OptimizedSearch(BaseExplanation):
         orig_label = np.argmax(orig_preds)
 
         if to_maximize is None:
-            to_maximize = np.argsort(orig_preds)[0][-2:-1][0]
+            self.construct_per_class_trees()
+            to_maximize_list = np.argsort(orig_preds)[0][:-1][::-1]
+            for class_ in to_maximize_list:
+                if self.per_class_trees[class_]:
+                    to_maximize = class_
+                    break
 
         if orig_label == to_maximize:
             print("Original and Target Label are identical !")

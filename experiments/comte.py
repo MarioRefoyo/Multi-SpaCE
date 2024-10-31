@@ -17,14 +17,14 @@ from experiments.results.results_concatenator import concatenate_result_files
 
 from methods.COMTECF import COMTECF
 
-DATASETS = ['PEMS-SF']
+DATASETS = ['ArticularyWordRecognition']
 PARAMS_PATH = 'experiments/params_cf/baseline_comte.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 MULTIPROCESSING = True
-I_START = 0
+I_START = 00
 THREAD_SAMPLES = 1
-POOL_SIZE = 6
-INDEXES_TO_CALCULATE = [0, 1, 2, 3, 4, 5, 6, 8, 93, 97, 99]
+POOL_SIZE = 5
+INDEXES_TO_CALCULATE = [11, 12, 16]
 
 
 def get_counterfactual_worker(sample_dict):
@@ -93,7 +93,6 @@ def experiment_dataset(dataset, exp_name, params):
         if THREAD_SAMPLES != 1:
             raise ValueError("Using specific indexes to calculate counterfactuals "
                              "does not support multiple instances per thread.")
-        X_test, y_test = X_test[INDEXES_TO_CALCULATE], y_test[INDEXES_TO_CALCULATE]
         first_sample_list = copy.deepcopy(INDEXES_TO_CALCULATE)
     else:
         first_sample_list = list(range(I_START, len(X_test), THREAD_SAMPLES))
@@ -102,9 +101,11 @@ def experiment_dataset(dataset, exp_name, params):
     if MULTIPROCESSING:
         # Prepare dict to iterate optimization problem
         samples = []
-        for i in range(I_START, len(X_test), THREAD_SAMPLES):
+        for i in range(len(first_sample_list)):
             # Init optimizer
-            x_orig_samples = X_test[i:i + THREAD_SAMPLES]
+            first_sample = first_sample_list[i]
+            end_sample = first_sample_list[i] + THREAD_SAMPLES
+            x_orig_samples = X_test[first_sample:end_sample]
 
             sample_dict = {
                 "dataset": dataset,

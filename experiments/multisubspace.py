@@ -19,7 +19,6 @@ from methods.MultiSubSpaCECF import MultiSubSpaCECF
 from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
 from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, NoneFI, TSRFI
 
-
 DATASETS = [
     'BasicMotions', 'NATOPS', 'UWaveGestureLibrary'
     'ArticularyWordRecognition', 'Cricket', 'Epilepsy', 'PenDigits', 'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
@@ -29,6 +28,7 @@ DATASETS = [
     # 'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', # 'HandOutlines',
     'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso', 'NonInvasiveFatalECGThorax2', # 'CBF',
 ]
+DATASETS = ['ArticularyWordRecognition', 'SelfRegulationSCP1']
 PARAMS_PATH = 'experiments/params_cf/multisubspace_pruning.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 OC_EXPERIMENT_NAME = 'ae_basic_train'
