@@ -2,6 +2,12 @@ __pycache__
 .ipynb_checkpoints
 .idea/*
 experiments/data/*
-experiments/models/*
 experiments/results/*
+experiments/models/*
+!experiments/models/create_dataset_info.ipynb
+!experiments/models/train_ae_model.py
+!experiments/models/train_if_model.py
+!experiments/models/train_lof_model.py
+!experiments/models/train_classification_model.py
+!experiments/models/utils.py
 

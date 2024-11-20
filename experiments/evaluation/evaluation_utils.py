@@ -6,8 +6,9 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from tensorflow import keras
+from multiprocessing import Pool
 
-from methods.outlier_calculators import AEOutlierCalculator
+from methods.outlier_calculators import AEOutlierCalculator, IFOutlierCalculator, LOFOutlierCalculator
 from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, get_subsample
 from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
 from methods.MultiSubSpaCE.FitnessFunctions import fitness_function_mo
@@ -60,7 +61,7 @@ def calculate_change_mask(x_orig, x_cf, x_nun=None, verbose=0):
     return change_mask
 
 
-def load_dataset_for_eval(dataset, model_to_explain, ae_name):
+def load_dataset_for_eval(dataset, model_to_explain, osc_names):
     X_train, y_train, X_test, y_test = local_data_loader(str(dataset), min_max_scaling=False, data_path="./experiments/data")
     y_train, y_test = label_encoder(y_train, y_test)
     data_tuple = (X_train, y_train, X_test, y_test)
@@ -73,9 +74,22 @@ def load_dataset_for_eval(dataset, model_to_explain, ae_name):
     y_pred_test = np.argmax(y_pred_test_logits, axis=1)
     y_pred_train = np.argmax(y_pred_train_logits, axis=1)
 
-    # Load outlier calculator
-    ae = keras.models.load_model(f'./experiments/models/{dataset}/{ae_name}/model.hdf5')
-    outlier_calculator = AEOutlierCalculator(ae, X_train)
+    # Load outlier calculators
+    outlier_calculators = {}
+    for osc_name, osc_exp_names in osc_names.items():
+        if osc_name == "AE":
+            ae_model = keras.models.load_model(f'./experiments/models/{dataset}/{osc_exp_names}/model.hdf5')
+            outlier_calculators[osc_name] = AEOutlierCalculator(ae_model, X_train)
+        elif osc_name == "IF":
+            with open(f'./experiments/models/{dataset}/{osc_exp_names}/model.pickle', 'rb') as f:
+                if_model = pickle.load(f)
+            outlier_calculators[osc_name] = IFOutlierCalculator(if_model, X_train)
+        elif osc_name == "LOF":
+            with open(f'./experiments/models/{dataset}/{osc_exp_names}/model.pickle', 'rb') as f:
+                lof_model = pickle.load(f)
+            outlier_calculators[osc_name] = LOFOutlierCalculator(lof_model, X_train)
+        else:
+            raise ValueError("Not valid name in outlier calculator names.")
 
     # Get the NUNs
     possible_nuns = {}
@@ -97,11 +111,98 @@ def load_dataset_for_eval(dataset, model_to_explain, ae_name):
     possible_nuns['iknn'] = iknn_nuns
     # NOTE: DESIRED CLASSES ARE ALWAYS THE SAME
 
-    return data_tuple, y_pred_test, model, outlier_calculator, possible_nuns, desired_classes
+    return data_tuple, y_pred_test, model, outlier_calculators, possible_nuns, desired_classes
+
+
+def process_method_dir(args):
+    dataset, model_to_explain, method_dir_name, methods, model, outlier_calculators, X_test, original_classes, possible_nuns, mo_weights, order = args
+    results_df = pd.DataFrame()
+    method_cfs_dataset = {}
+
+    # Load solution cfs
+    with open(f'./experiments/results/{dataset}/{model_to_explain}/{method_dir_name}/counterfactuals.pickle',
+              'rb') as f:
+        print(method_dir_name)
+        method_cfs = pickle.load(f)
+
+    # Load params
+    with open(f'./experiments/results/{dataset}/{model_to_explain}/{method_dir_name}/params.json', 'r') as json_file:
+        method_params = json.load(json_file)
+        method_test_indexes = method_params["X_test_indexes"]
+
+    # Get nuns used by the method depending on the name
+    if "independent_channels_nun" in method_params:
+        if method_params["independent_channels_nun"]:
+            nuns = possible_nuns["iknn"]
+        else:
+            nuns = possible_nuns["gknn"]
+    else:
+        nuns = np.array([None] * len(X_test))
+
+    # Calculate metrics
+    method_name = methods[method_dir_name]
+    method_metrics = calculate_method_metrics(
+        model, outlier_calculators, X_test[method_test_indexes],
+        nuns[method_test_indexes], method_cfs, original_classes[method_test_indexes],
+        method_name, mo_weights=mo_weights, order=order
+    )
+    method_metrics.insert(0, "ii", method_test_indexes)
+
+    results_df = pd.concat([results_df, method_metrics])
+    method_cfs_dataset[method_name] = method_cfs
+    common_test_indexes = list(method_test_indexes)
+
+    return results_df, method_cfs_dataset, common_test_indexes
+
+
+def calculate_metrics_for_dataset_mp(dataset, methods, model_to_explain,
+                                     data_tuple, original_classes, model, outlier_calculators, possible_nuns,
+                                     mo_weights=None):
+    X_train, y_train, X_test, y_test = data_tuple
+
+    cf_solution_dirs = [fname for fname in os.listdir(f'./experiments/results/{dataset}/{model_to_explain}') if
+                        os.path.isdir(f'./experiments/results/{dataset}/{model_to_explain}/{fname}')]
+    desired_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in cf_solution_dirs if cf_sol_dir in methods.keys()]
+    valid_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in desired_cf_solution_dirs if os.path.isfile(
+        f'./experiments/results/{dataset}/{model_to_explain}/{cf_sol_dir}/counterfactuals.pickle')]
+
+    # Prepare arguments for parallel processing
+    args = [
+        (dataset, model_to_explain, method_dir_name, methods, model, outlier_calculators, X_test,
+         original_classes, possible_nuns, mo_weights, i + 1)
+        for i, method_dir_name in enumerate(valid_cf_solution_dirs)
+    ]
+
+    # Use multiprocessing pool to parallelize the processing of each method directory
+    with Pool(10) as pool:
+        results = pool.map(process_method_dir, args)
+
+    # Collect results
+    results_df = pd.DataFrame()
+    method_cfs_dataset = {}
+    common_test_indexes = list(range(len(X_test)))
+
+    for res_df, method_cfs, test_indexes in results:
+        results_df = pd.concat([results_df, res_df])
+        method_cfs_dataset.update(method_cfs)
+        common_test_indexes = list(set(test_indexes).intersection(common_test_indexes))
+        common_test_indexes.sort()
+
+    # Calculate results table for the dataset
+    means_df = results_df.groupby('method').mean()
+    means_df = means_df.sort_values('order').drop('order', axis=1)
+    stds_df = results_df.groupby('method').std()
+    stds_df = stds_df.drop('order', axis=1)
+    stds_df = stds_df.reindex(means_df.index)
+    mean_std_df = means_df.round(2).astype(str) + " ± " + stds_df.round(2).astype(str)
+    mean_std_df = mean_std_df.reset_index()
+    results_df['dataset'] = dataset
+
+    return mean_std_df, results_df, method_cfs_dataset, common_test_indexes
 
 
 def calculate_metrics_for_dataset(dataset, methods, model_to_explain,
-                                  data_tuple, original_classes, model, outlier_calculator, possible_nuns,
+                                  data_tuple, original_classes, model, outlier_calculators, possible_nuns,
                                   mo_weights=None):
     X_train, y_train, X_test, y_test = data_tuple
 
@@ -132,7 +233,7 @@ def calculate_metrics_for_dataset(dataset, methods, model_to_explain,
 
         # Calculate metrics
         method_name = methods[method_dir_name]
-        method_metrics = calculate_method_metrics(model, outlier_calculator,
+        method_metrics = calculate_method_metrics(model, outlier_calculators,
                                                   X_test[method_test_indexes], nuns[method_test_indexes], method_cfs,
                                                   original_classes[method_test_indexes], method_name,
                                                   mo_weights=mo_weights, order=i + 1)
@@ -295,8 +396,6 @@ def calculate_method_valids(model, X_test, counterfactuals, original_classes):
     # Loop over counterfactuals
     valids = []
     for i in tqdm(range(len(X_test))):
-        counterfactuals[i] = counterfactuals[i].reshape(length, n_channels)
-
         # Predict counterfactual class probability
         preds = model.predict(counterfactuals[i].reshape(-1, length, n_channels), verbose=0)
         pred_class = np.argmax(preds, axis=1)[0]
@@ -310,7 +409,7 @@ def calculate_method_valids(model, X_test, counterfactuals, original_classes):
     return valids
 
 
-def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_in, original_classes,
+def calculate_method_metrics(model, outlier_calculators, X_test, nuns, solutions_in, original_classes,
                              method_name, mo_weights=None, order=None):
     # Get the results and separate them in counterfactuals and execution times
     solutions = copy.deepcopy(solutions_in)
@@ -336,8 +435,8 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
     l2s = []
     pred_probas = []
     valids = []
-    outlier_scores = []
-    increase_outlier_scores = []
+    outlier_scores_dict = {}
+    increase_outlier_scores_dict = {}
     n_subsequences = []
     best_cf_is = []
     if nuns[0] is not None:
@@ -352,10 +451,10 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
             desired_class = desired_classes[i]
             # Sort by objective weights and take the best
             predicted_probs = model.predict(counterfactuals_i, verbose=0)
-            # Get outlier scores
-            if outlier_calculator is not None:
-                aux_outlier_scores = outlier_calculator.get_outlier_scores(counterfactuals_i)
-                aux_increase_outlier_score = aux_outlier_scores - outlier_calculator.get_outlier_scores(x_orig_i)[0]
+            # Get outlier scores from AE to get the best CF
+            if outlier_calculators is not None:
+                aux_outlier_scores = outlier_calculators["AE"].get_outlier_scores(counterfactuals_i)
+                aux_increase_outlier_score = aux_outlier_scores - outlier_calculators["AE"].get_outlier_scores(x_orig_i)[0]
             else:
                 aux_increase_outlier_score = np.zeros((predicted_probs.shape[0], 1))
             # Get fitness scores
@@ -374,7 +473,7 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
         pred_class = np.argmax(preds, axis=1)[0]
 
         # Valids
-        if pred_class != original_classes[i]:
+        if (pred_class != original_classes[i]) and (~np.isnan(counterfactual_i).any()):
             valids.append(True)
 
             # Add class probability
@@ -396,11 +495,18 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
             l2s.append(l2)
 
             # Calculate outlier scores
-            outlier_score_orig = outlier_calculator.get_outlier_scores(x_orig_i)[0]
-            outlier_score = outlier_calculator.get_outlier_scores(counterfactual_i)[0]
-            increase_outlier_score = outlier_score - outlier_score_orig
-            outlier_scores.append(outlier_score)
-            increase_outlier_scores.append(increase_outlier_score)
+            for oc_name, outlier_calculator in outlier_calculators.items():
+                outlier_score_orig = outlier_calculator.get_outlier_scores(x_orig_i)[0]
+                outlier_score = outlier_calculator.get_outlier_scores(counterfactual_i)[0]
+                increase_outlier_score = outlier_score - outlier_score_orig
+                if oc_name in outlier_scores_dict:
+                    outlier_scores_dict[oc_name].append(outlier_score)
+                else:
+                    outlier_scores_dict[oc_name] = [outlier_score]
+                if oc_name in increase_outlier_scores_dict:
+                    increase_outlier_scores_dict[oc_name].append(increase_outlier_score)
+                else:
+                    increase_outlier_scores_dict[oc_name] = [increase_outlier_score]
 
             # Number of sub-sequences
             # print(change_mask.shape)
@@ -413,9 +519,16 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
             nchanges.append(np.nan)
             l1s.append(np.nan)
             l2s.append(np.nan)
-            outlier_scores.append(np.nan)
-            increase_outlier_scores.append(np.nan)
             n_subsequences.append(np.nan)
+            for oc_name, outlier_calculator in outlier_calculators.items():
+                if oc_name in outlier_scores_dict:
+                    outlier_scores_dict[oc_name].append(np.nan)
+                else:
+                    outlier_scores_dict[oc_name] = [np.nan]
+                if oc_name in increase_outlier_scores_dict:
+                    increase_outlier_scores_dict[oc_name].append(np.nan)
+                else:
+                    increase_outlier_scores_dict[oc_name] = [np.nan]
 
     # Valid NUN classes
     if nuns[0] is None:
@@ -424,10 +537,6 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
         nun_preds = model.predict(nuns, verbose=0)
         nun_pred_class = np.argmax(nun_preds, axis=1)
         valid_nuns = nun_pred_class != original_classes
-
-    # Outlier scores
-    increase_os = np.array(increase_outlier_scores)
-    increase_os[increase_os < 0] = 0
 
     # Create dataframe
     results = pd.DataFrame()
@@ -438,8 +547,14 @@ def calculate_method_metrics(model, outlier_calculator, X_test, nuns, solutions_
     results["proba"] = pred_probas
     results["valid"] = valids
     results["nuns_valid"] = valid_nuns
-    results["outlier_score"] = outlier_scores
-    results["increase_outlier_score"] = increase_os
+    # Create column for Outlier Scores for every calculator
+    for oc_name, outlier_scores in outlier_scores_dict.items():
+        outlier_scores = np.array(outlier_scores)
+        results[f"{oc_name}_OS"] = outlier_scores
+    for oc_name, increase_outlier_scores in increase_outlier_scores_dict.items():
+        increase_os = np.array(increase_outlier_scores)
+        increase_os[increase_os < 0] = 0
+        results[f"{oc_name}_IOS"] = increase_os
     results['subsequences'] = n_subsequences
     results['subsequences %'] = np.array(n_subsequences) / ((length * n_channels) / 2)
     results['times'] = execution_times

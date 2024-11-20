@@ -17,24 +17,27 @@ from experiments.results.results_concatenator import concatenate_result_files
 
 from methods.DiscoXCF import DiscoXCF
 
-DATASETS = [
-    "BasicMotions", "NATOPS", "UWaveGestureLibrary",
-    'ArticularyWordRecognition', 'Cricket', 'Epilepsy', 'PenDigits', 'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
-]
+
 DATASETS = [
     # 'ECG200', 'Gunpoint', 'Coffee',
     # 'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA',
     # 'HandOutlines',
     # 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000',
-    'CinCECGTorso',
+    # 'CinCECGTorso',
     # 'NonInvasiveFatalECGThorax2', # 'CBF'
+]
+DATASETS = [
+    # "BasicMotions", "NATOPS", "UWaveGestureLibrary",
+    # 'ArticularyWordRecognition',
+    'Cricket',
+    # 'Epilepsy', 'PenDigits', 'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
 ]
 PARAMS_PATH = 'experiments/params_cf/baseline_discox.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 1
-POOL_SIZE = 10
+POOL_SIZE = 5
 INDEXES_TO_CALCULATE = None
 
 
