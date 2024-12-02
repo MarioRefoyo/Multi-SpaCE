@@ -14,32 +14,37 @@ from sklearn.metrics import classification_report
 from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, store_partial_cfs, \
     ucr_data_loader, load_parameters_from_json, generate_settings_combinations, get_subsample
 from experiments.results.results_concatenator import concatenate_result_files
+from methods.outlier_calculators import AEOutlierCalculator
 
 from methods.IntegratedPruningMultiSubSpaCECF import IntegratedMultiSubSpaCECF
 from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
 from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, NoneFI, TSRFI
 
+
 DATASETS = [
-    # 'ECG200', 'Gunpoint', 'Coffee',
-    # 'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', # 'HandOutlines',
-    'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso', 'NonInvasiveFatalECGThorax2', # 'CBF',
+    'ECG200', 'Gunpoint', 'Coffee',
+    'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
+    'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso', 'NonInvasiveFatalECGThorax2', 'CBF',
 ]
 DATASETS = [
-    # 'BasicMotions', 'NATOPS', 'UWaveGestureLibrary',
-    # 'ArticularyWordRecognition', 'Cricket', 'Epilepsy', 'PenDigits',
-    'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
+    # 'BasicMotions', # 'NATOPS', 'UWaveGestureLibrary',
+    #'ArticularyWordRecognition', 'Cricket',
+    'Epilepsy', # 'PenDigits',
+    # 'PEMS-SF', #'RacketSports', 'SelfRegulationSCP1'
 ]
+
 PARAMS_PATH = 'experiments/params_cf/multisubspace_integrated_pruning.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 OC_EXPERIMENT_NAME = 'ae_basic_train'
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
-POOL_SIZE = 10
+POOL_SIZE = 1
 
 
 def get_counterfactual_worker(sample_dict):
     dataset = sample_dict["dataset"]
+    X_train, y_train = sample_dict["train_data_tuple"]
     exp_name = sample_dict["exp_name"]
     params = sample_dict["params"]
     first_sample_i = sample_dict["first_sample_i"]
@@ -57,8 +62,8 @@ def get_counterfactual_worker(sample_dict):
     model_worker = tf.keras.models.load_model(f'experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/model.hdf5')
 
     # Get outlier calculator
-    with open(f'experiments/models/{dataset}/{OC_EXPERIMENT_NAME}/outlier_calculator.pickle', 'rb') as f:
-        outlier_calculator_worker = pickle.load(f)
+    ae_model = tf.keras.models.load_model(f'./experiments/models/{dataset}/{OC_EXPERIMENT_NAME}/model.hdf5')
+    outlier_calculator_worker = AEOutlierCalculator(ae_model, X_train)
 
     # Get FI method for initialization
     if params["init_fi"] == "none":
@@ -75,10 +80,12 @@ def get_counterfactual_worker(sample_dict):
     cf_explainer = IntegratedMultiSubSpaCECF(
         model_worker, 'tf', outlier_calculator_worker, fi_method,
         grouped_channels_iter, individual_channels_iter, pruning_iter,
+        plausibility_objective=params["plausibility_objective"],
         population_size=params["population_size"],
         change_subseq_mutation_prob=params["change_subseq_mutation_prob"],
         add_subseq_mutation_prob=params["add_subseq_mutation_prob"],
-        remove_subseq_mutation_prob=params["remove_subseq_mutation_prob"],
+        integrated_pruning_mutation_prob=params["integrated_pruning_mutation_prob"],
+        final_pruning_mutation_prob=params["final_pruning_mutation_prob"],
         init_pct=params["init_pct"], reinit=params["reinit"], init_random_mix_ratio=params["init_random_mix_ratio"],
         invalid_penalization=params["invalid_penalization"],
     )
@@ -152,6 +159,7 @@ def experiment_dataset(dataset, exp_name, params):
 
             sample_dict = {
                 "dataset": dataset,
+                "train_data_tuple": (X_train, y_train),
                 "exp_name": exp_name,
                 "params": params,
                 "first_sample_i": i,

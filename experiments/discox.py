@@ -19,18 +19,19 @@ from methods.DiscoXCF import DiscoXCF
 
 
 DATASETS = [
+    # "BasicMotions", "NATOPS", "UWaveGestureLibrary",
+    # 'ArticularyWordRecognition',
+    # 'Cricket',
+    # 'Epilepsy', 'PenDigits', 'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
+]
+DATASETS = [
     # 'ECG200', 'Gunpoint', 'Coffee',
     # 'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA',
     # 'HandOutlines',
     # 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000',
     # 'CinCECGTorso',
-    # 'NonInvasiveFatalECGThorax2', # 'CBF'
-]
-DATASETS = [
-    # "BasicMotions", "NATOPS", "UWaveGestureLibrary",
-    # 'ArticularyWordRecognition',
-    'Cricket',
-    # 'Epilepsy', 'PenDigits', 'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
+    'NonInvasiveFatalECGThorax2',
+    # 'CBF'
 ]
 PARAMS_PATH = 'experiments/params_cf/baseline_discox.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'

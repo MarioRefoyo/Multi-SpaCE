@@ -454,12 +454,12 @@ def calculate_method_metrics(model, outlier_calculators, X_test, nuns, solutions
             # Get outlier scores from AE to get the best CF
             if outlier_calculators is not None:
                 aux_outlier_scores = outlier_calculators["AE"].get_outlier_scores(counterfactuals_i)
-                aux_increase_outlier_score = aux_outlier_scores - outlier_calculators["AE"].get_outlier_scores(x_orig_i)[0]
             else:
-                aux_increase_outlier_score = np.zeros((predicted_probs.shape[0], 1))
+                aux_outlier_scores = np.zeros((predicted_probs.shape[0], 1))
             # Get fitness scores
             change_masks = (counterfactuals_i != x_orig_i).astype(int)
-            objective_fitness = fitness_function_mo(change_masks, predicted_probs, desired_class, aux_increase_outlier_score, 100)
+            objective_fitness = fitness_function_mo(change_masks, predicted_probs, desired_class, aux_outlier_scores,
+                                                    outlier_calculators["AE"].get_outlier_scores(x_orig_i)[0], 100)
             fitness = (objective_fitness * mo_weights).sum(axis=1)
             best_cf_i = np.argsort(fitness)[-1]
             counterfactual_i = counterfactuals_i[best_cf_i].reshape(length, n_channels)

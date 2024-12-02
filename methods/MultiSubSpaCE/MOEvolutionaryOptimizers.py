@@ -199,13 +199,13 @@ class MOEvolutionaryOptimizer(ABC):
         # Get outlier scores
         if self.outlier_calculator is not None:
             outlier_scores = self.outlier_calculator.get_outlier_scores(population_cfs)
-            increase_outlier_score = outlier_scores - self.outlier_scores_orig
+            # increase_outlier_score = outlier_scores - self.outlier_scores_orig
         else:
-            increase_outlier_score = np.zeros((predicted_probs.shape[0], 1))
+            outlier_scores = np.zeros((predicted_probs.shape[0], 1))
 
         # Get fitness function
-        fitness = self.fitness_func(population, predicted_probs, self.desired_class, increase_outlier_score,
-                                    self.invalid_penalization)
+        fitness = self.fitness_func(population, predicted_probs, self.desired_class, outlier_scores,
+                                    self.outlier_scores_orig, self.invalid_penalization)
         return fitness
 
     def select_candidates(self, population, fitness, number):
@@ -427,9 +427,9 @@ class MOEvolutionaryOptimizer(ABC):
                 self.init_pct = self.init_pct + 0.2
                 try:
                     self.population = self.init_population(self.importance_heatmap)
-                except Exception:
-                    print("Error in initialization. Ending cf search.")
-                    return None, None
+                except Exception as e:
+                    print(f"Error in initialization. Ending cf search. {e}")
+                    return best_individuals, best_avg_fitness_evolution
 
                 objectives_fitness = self.compute_fitness(self.population)
                 fronts = self.fast_non_dominated_sorting(objectives_fitness)
@@ -443,10 +443,13 @@ class MOEvolutionaryOptimizer(ABC):
             if np.all((self.population == self.population[0])):
                 print(f'Found convergence of solutions in {iteration} iteration.')
                 best_classification_prob = objectives_fitness[0, 0]
-                if best_classification_prob > 0.5:
+                # Get counterfactuals
+                population_cfs = self.get_counterfactuals(self.x_orig, self.nun_example, self.population)
+                predicted_class = np.argmax(self.prediction_func(population_cfs), axis=1)[0]
+                if predicted_class == self.desired_class:
                     break
                 else:
-                    print(f'Final prob {best_classification_prob:.2f}. '
+                    print(f'Final prob {best_classification_prob:.2f}, class {predicted_class}. '
                           'Restarting process with more activations in init.')
                     iteration = 0
                     self.init_pct = self.init_pct + 0.2
@@ -454,7 +457,7 @@ class MOEvolutionaryOptimizer(ABC):
                         self.population = self.init_population(self.importance_heatmap)
                     except Exception:
                         print("Error in initialization. Ending cf search.")
-                        return None, None
+                        return best_individuals, best_avg_fitness_evolution
                     objectives_fitness = self.compute_fitness(self.population)
                     fronts = self.fast_non_dominated_sorting(objectives_fitness)
                     sorted_idx, sorted_population, sorted_objectives, ranks, cdists = self.crowing_distance_sorting(
@@ -729,13 +732,17 @@ class IntegratedPruningNSubsequenceEvolutionaryOptimizer(MOEvolutionaryOptimizer
         return mutated_population
 
     def mutate(self, sub_population):
-        # Compute mutation values
-        mutated_sub_population = self.shrink_mutation(sub_population, self.change_subseq_mutation_prob)
-        mutated_sub_population = self.extend_mutation(mutated_sub_population, self.change_subseq_mutation_prob)
+        mutated_sub_population = sub_population.copy()
+        # Subsequence Extension / Compression mutation
+        if self.change_subseq_mutation_prob > 0:
+            mutated_sub_population = self.shrink_mutation(mutated_sub_population, self.change_subseq_mutation_prob)
+            mutated_sub_population = self.extend_mutation(mutated_sub_population, self.change_subseq_mutation_prob)
+        # Subsequence creation mutation
         if self.add_subseq_mutation_prob > 0:
             mutated_sub_population = self.add_subsequence_mutation(mutated_sub_population, self.add_subseq_mutation_prob)
-        # Remove complete subsequences
-        mutated_sub_population = self.remove_subsequence_mutation(mutated_sub_population, self.remove_subseq_mutation_prob)
+        # Subsequence removal mutation
+        if self.remove_subseq_mutation_prob > 0:
+            mutated_sub_population = self.remove_subsequence_mutation(mutated_sub_population, self.remove_subseq_mutation_prob)
         return mutated_sub_population
 
 
@@ -747,13 +754,13 @@ if __name__ == "__main__":
     population_objective_fitness = np.random.multivariate_normal([0, 0], np.array([[1, corr], [corr, 1]]), size=n)
     fronts = MOEvolutionaryOptimizer.fast_non_dominated_sorting(population_objective_fitness)
 
-    """import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt
     for i, front in enumerate(fronts):
         o1 = population_objective_fitness[front, 0]
         o2 = population_objective_fitness[front, 1]
         plt.scatter(o1, o2, label=i)
     plt.legend()
-    plt.show()"""
+    plt.show()
 
     # Generate new population
     sorted_idx, sorted_population, sorted_objectives, ranks, cdists = MOEvolutionaryOptimizer.crowing_distance_sorting(
