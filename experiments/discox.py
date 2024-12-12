@@ -19,26 +19,21 @@ from methods.DiscoXCF import DiscoXCF
 
 
 DATASETS = [
-    # "BasicMotions", "NATOPS", "UWaveGestureLibrary",
-    # 'ArticularyWordRecognition',
-    # 'Cricket',
-    # 'Epilepsy', 'PenDigits', 'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
+    "BasicMotions", "NATOPS", "UWaveGestureLibrary",
+    'ArticularyWordRecognition', 'Cricket',
+    'Epilepsy', 'PenDigits', 'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
 ]
 DATASETS = [
-    # 'ECG200', 'Gunpoint', 'Coffee',
-    # 'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA',
-    # 'HandOutlines',
-    # 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000',
-    # 'CinCECGTorso',
-    'NonInvasiveFatalECGThorax2',
-    # 'CBF'
+    'ECG200', 'Gunpoint', 'Coffee',
+    'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
+    'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso', 'NonInvasiveFatalECGThorax2', 'CBF',
 ]
 PARAMS_PATH = 'experiments/params_cf/baseline_discox.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 1
-POOL_SIZE = 5
+POOL_SIZE = 10
 INDEXES_TO_CALCULATE = None
 
 

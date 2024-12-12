@@ -17,14 +17,18 @@ from experiments.results.results_concatenator import concatenate_result_files
 
 from methods.COMTECF import COMTECF
 
-DATASETS = ['ArticularyWordRecognition']
+DATASETS = [
+    'BasicMotions', 'NATOPS', 'UWaveGestureLibrary', 'Cricket',
+    'ArticularyWordRecognition', 'Epilepsy', 'PenDigits',
+    'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
+]
 PARAMS_PATH = 'experiments/params_cf/baseline_comte.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 MULTIPROCESSING = True
-I_START = 00
+I_START = 0
 THREAD_SAMPLES = 1
-POOL_SIZE = 5
-INDEXES_TO_CALCULATE = [11, 12, 16]
+POOL_SIZE = 10
+INDEXES_TO_CALCULATE = None
 
 
 def get_counterfactual_worker(sample_dict):

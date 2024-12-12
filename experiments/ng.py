@@ -21,10 +21,9 @@ from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, No
 
 
 DATASETS = [
-    # 'ECG200', 'Gunpoint', 'Coffee',
-    # 'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA',
-    'HandOutlines',
-    # 'CBF', 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso', 'NonInvasiveFatalECGThorax2'
+    'ECG200', 'Gunpoint', 'Coffee',
+    'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
+    'CBF', 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso', 'NonInvasiveFatalECGThorax2'
 ]
 PARAMS_PATH = 'experiments/params_cf/baseline_ng.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'

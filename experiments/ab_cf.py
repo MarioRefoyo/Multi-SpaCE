@@ -18,11 +18,15 @@ from experiments.results.results_concatenator import concatenate_result_files
 from methods.ABCF import ABCF
 
 
-# DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
 DATASETS = [
-    # 'ECG200', 'Gunpoint', 'Coffee',
+    'ECG200', 'Gunpoint', 'Coffee',
     'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
-    'CBF', 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso', 'NonInvasiveFatalECGThorax2'
+    'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso', 'NonInvasiveFatalECGThorax2', 'CBF',
+]
+DATASETS = [
+    'BasicMotions', 'NATOPS', 'UWaveGestureLibrary', 'Cricket',
+    'ArticularyWordRecognition', 'Epilepsy', 'PenDigits',
+    'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
 ]
 PARAMS_PATH = 'experiments/params_cf/baseline_abcf.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'

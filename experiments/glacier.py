@@ -23,12 +23,10 @@ from methods.GlacierCF import GlacierCF
 # session = tf.compat.v1.Session(config=config)
 
 
-# DATASETS = ['BasicMotions', 'NATOPS', 'UWaveGestureLibrary']
 DATASETS = [
-    # 'ECG200', 'Gunpoint', 'Coffee',
-    # 'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA',
-    'HandOutlines',
-    # 'CBF', 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso', 'NonInvasiveFatalECGThorax2'
+    'ECG200', 'Gunpoint', 'Coffee',
+    'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
+    'CBF', 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso', 'NonInvasiveFatalECGThorax2'
 ]
 PARAMS_PATH = 'experiments/params_cf/baseline_glacier.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
