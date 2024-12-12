@@ -32,8 +32,13 @@ DATASETS = [
     'Epilepsy', # 'PenDigits',
     # 'PEMS-SF', #'RacketSports', 'SelfRegulationSCP1'
 ]
+DATASETS = [
+    # 'BasicMotions', 'NATOPS', 'UWaveGestureLibrary', 'Cricket',
+    'ArticularyWordRecognition', 'Epilepsy', 'PenDigits',
+    'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
+]
 
-PARAMS_PATH = 'experiments/params_cf/multisubspace_integrated_pruning.json'
+PARAMS_PATH = 'experiments/params_cf/multisubspace_time_test.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 OC_EXPERIMENT_NAME = 'ae_basic_train'
 MULTIPROCESSING = True
