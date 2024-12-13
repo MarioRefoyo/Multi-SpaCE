@@ -1,16 +1,18 @@
 import numpy as np
 import copy
 
-from .MultiSubSpaCE.MOEvolutionaryOptimizers import NSubsequenceEvolutionaryOptimizer, SubsequencePruningEvolutionaryOptimizer
-from .MultiSubSpaCE.FitnessFunctions import fitness_function_mo
+from .MultiSubSpaCE.MOEvolutionaryOptimizers import IntegratedPruningNSubsequenceEvolutionaryOptimizer, SubsequencePruningEvolutionaryOptimizer
+from .MultiSubSpaCE.FitnessFunctions import fitness_function_mo, fitness_function_mo_os
 from .counterfactual_common import CounterfactualMethod
 
 
 class MultiSubSpaCECF(CounterfactualMethod):
     def __init__(self, model, backend, outlier_calculator, fi_method,
                  grouped_channels_iter, individual_channels_iter, pruning_iter,
+                 plausibility_objective="ios",
                  population_size=100,
-                 change_subseq_mutation_prob=0.05, add_subseq_mutation_prob=0, remove_subseq_mutation_prob=0.2,
+                 change_subseq_mutation_prob=0.05, add_subseq_mutation_prob=0,
+                 integrated_pruning_mutation_prob=0.05, final_pruning_mutation_prob=0.5,
                  init_pct=0.4, reinit=True, init_random_mix_ratio=0.5,
                  invalid_penalization=100,):
         super().__init__(model, backend)
@@ -20,35 +22,42 @@ class MultiSubSpaCECF(CounterfactualMethod):
         self.grouped_channels_iter = grouped_channels_iter
         self.individual_channels_iter = individual_channels_iter
         self.pruning_iter = pruning_iter
+        if plausibility_objective == "ios":
+            used_fitness_function = fitness_function_mo
+        elif plausibility_objective == "os":
+            used_fitness_function = fitness_function_mo_os
+        else:
+            raise ValueError('Not valid plausibility_objective. Choose "ios" or "os".')
+
 
         # Init Genetic Optimizer
         if grouped_channels_iter > 0:
-            self.g_channels_optimizer = NSubsequenceEvolutionaryOptimizer(
-                fitness_function_mo, self.predict_function,
+            self.g_channels_optimizer = IntegratedPruningNSubsequenceEvolutionaryOptimizer(
+                used_fitness_function, self.predict_function,
                 population_size, grouped_channels_iter,
-                change_subseq_mutation_prob, add_subseq_mutation_prob,
+                change_subseq_mutation_prob, add_subseq_mutation_prob, integrated_pruning_mutation_prob,
                 init_pct, reinit, init_random_mix_ratio,
                 invalid_penalization,
                 self.feature_axis, False
             )
         if individual_channels_iter > 0:
-            self.i_channels_optimizer = NSubsequenceEvolutionaryOptimizer(
-                fitness_function_mo, self.predict_function,
+            self.i_channels_optimizer = IntegratedPruningNSubsequenceEvolutionaryOptimizer(
+                used_fitness_function, self.predict_function,
                 population_size, individual_channels_iter,
-                change_subseq_mutation_prob, add_subseq_mutation_prob,
+                change_subseq_mutation_prob, add_subseq_mutation_prob, integrated_pruning_mutation_prob,
                 init_pct, reinit, init_random_mix_ratio,
                 invalid_penalization,
                 self.feature_axis, True
             )
 
         if pruning_iter > 0:
-            self.subsequence_pruning_optimizer = SubsequencePruningEvolutionaryOptimizer(
-                fitness_function_mo, self.predict_function,
+            self.subsequence_pruning_optimizer = IntegratedPruningNSubsequenceEvolutionaryOptimizer(
+                used_fitness_function, self.predict_function,
                 population_size, pruning_iter,
-                remove_subseq_mutation_prob,
+                0, add_subseq_mutation_prob, final_pruning_mutation_prob,
                 init_pct, reinit, init_random_mix_ratio,
                 invalid_penalization,
-                self.feature_axis
+                self.feature_axis, True
             )
 
     def search_mask(self, subsequence_optimizer, x_orig, nun_example, desired_target, combined_heatmap, init_mask):

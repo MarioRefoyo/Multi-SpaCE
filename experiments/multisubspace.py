@@ -16,7 +16,7 @@ from experiments.experiment_utils import local_data_loader, label_encoder, nun_r
 from experiments.results.results_concatenator import concatenate_result_files
 from methods.outlier_calculators import AEOutlierCalculator
 
-from methods.IntegratedPruningMultiSubSpaCECF import IntegratedMultiSubSpaCECF
+from methods.MultiSubSpaCECF import MultiSubSpaCECF
 from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
 from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, NoneFI, TSRFI
 
@@ -76,7 +76,7 @@ def get_counterfactual_worker(sample_dict):
 
     # Instantiate the Counterfactual Explanation method
     grouped_channels_iter, individual_channels_iter, pruning_iter = params["max_iter"]
-    cf_explainer = IntegratedMultiSubSpaCECF(
+    cf_explainer = MultiSubSpaCECF(
         model_worker, 'tf', outlier_calculator_worker, fi_method,
         grouped_channels_iter, individual_channels_iter, pruning_iter,
         plausibility_objective=params["plausibility_objective"],
