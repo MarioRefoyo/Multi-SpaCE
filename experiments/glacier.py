@@ -26,10 +26,12 @@ from methods.GlacierCF import GlacierCF
 DATASETS = [
     'ECG200', 'Gunpoint', 'Coffee',
     'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
-    'CBF', 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso', 'NonInvasiveFatalECGThorax2'
+    'CBF', 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso',
+    'NonInvasiveFatalECGThorax2'
 ]
+
 PARAMS_PATH = 'experiments/params_cf/baseline_glacier.json'
-MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
+MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
 OC_EXPERIMENT_NAME = 'ae_basic_train'
 MULTIPROCESSING = True
 I_START = 0
@@ -87,7 +89,8 @@ def experiment_dataset(dataset, exp_name, params):
         random.seed(params["seed"])
 
     # Load data
-    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), min_max_scaling=False, data_path="./experiments/data")
+    scaling = params["scaling"]
+    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), scaling, backend="tf", data_path="./experiments/data")
     y_train, y_test = label_encoder(y_train, y_test)
 
     # Glacier only works for binary classification problems

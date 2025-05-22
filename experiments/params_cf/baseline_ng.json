@@ -3,5 +3,6 @@
   "subset": true,
   "subset_number": 100,
 
+  "scaling": "none",
   "fi_method": "gradcam++"
 }

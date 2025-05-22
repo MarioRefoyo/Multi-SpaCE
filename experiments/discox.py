@@ -24,16 +24,25 @@ DATASETS = [
     'Epilepsy', 'PenDigits', 'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
 ]
 DATASETS = [
-    'ECG200', 'Gunpoint', 'Coffee',
-    'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
-    'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso', 'NonInvasiveFatalECGThorax2', 'CBF',
+    # 'ECG200', 'Gunpoint', # 'Coffee',
+    'ItalyPowerDemand',
+    # 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
+    # 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', # 'CinCECGTorso',
+    # 'NonInvasiveFatalECGThorax2', 'CBF',
 ]
+DATASETS = ['Coffee', 'CinCECGTorso']
+
 PARAMS_PATH = 'experiments/params_cf/baseline_discox.json'
-MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
+MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 1
 POOL_SIZE = 10
+# INDEXES_TO_CALCULATE = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+# INDEXES_TO_CALCULATE = [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+# INDEXES_TO_CALCULATE = [40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59]
+# INDEXES_TO_CALCULATE = [60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79]
+# INDEXES_TO_CALCULATE = [80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]
 INDEXES_TO_CALCULATE = None
 
 
@@ -77,7 +86,8 @@ def experiment_dataset(dataset, exp_name, params):
         random.seed(params["seed"])
 
     # Load data
-    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), min_max_scaling=False, data_path="./experiments/data")
+    scaling = params["scaling"]
+    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), scaling, backend="tf", data_path="./experiments/data")
     y_train, y_test = label_encoder(y_train, y_test)
 
     # Get a subset of testing data if specified

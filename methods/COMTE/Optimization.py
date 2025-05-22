@@ -228,12 +228,12 @@ class BruteForceSearch(BaseExplanation):
 
         return self.clf(input_)[0][label_idx]
 
-    def _find_best(self, x_test, distractor, label_idx):
+    def _find_best(self, x_test, distractor, label_idx, channels_to_search):
         input_ = x_test
         best_case = self.clf(input_)[0][label_idx]
         best_column = None
         tuples = []
-        for c in range(0, self.channels):
+        for c in channels_to_search:
             if np.any(distractor[0][c] != x_test[0][c]):
                 tuples.append((c, label_idx))
         if self.threads == 1:
@@ -253,6 +253,28 @@ class BruteForceSearch(BaseExplanation):
         if not self.silent:
             logging.info("Best column: %s, best case: %s", best_column, best_case)
         return best_column, best_case
+
+    def _find_bests(self, x_test, distractor, label_idx, n_bests, channels_to_search):
+        n_bests = min(n_bests, len(channels_to_search))
+        tuples = []
+        for c in channels_to_search:
+            if np.any(distractor[0][c] != x_test[0][c]):
+                tuples.append((c, label_idx))
+        if self.threads == 1:
+            results = []
+            for t in tuples:
+                results.append(self._eval_one(t, x_test, distractor))
+        else:
+            """pool = multiprocessing.Pool(self.threads)
+            results = pool.map(_eval_one, tuples)
+            pool.close()
+            pool.join()"""
+            raise ValueError("Multiprocessing not supported")
+        results_np = np.array(results)
+        best_idxs = np.argsort(results_np)[-n_bests:]
+        best_columns = np.array(tuples)[best_idxs][:, 0]
+        best_cases = np.array(results)[best_idxs]
+        return best_columns.tolist(), best_cases.tolist()
 
     def explain(self, x_test, to_maximize=None, num_features=10):
         input_ = x_test
@@ -275,6 +297,7 @@ class BruteForceSearch(BaseExplanation):
             modified = x_test.copy()
             prev_best = 0
             # best_dist = dist
+            changed_columns = []
             while True:
                 input_ = modified
                 probas = self.clf(input_)
@@ -294,12 +317,23 @@ class BruteForceSearch(BaseExplanation):
                     and len(explanation) >= len(best_explanation)
                 ):
                     break
-                best_column, _ = self._find_best(modified, dist, to_maximize)
+                channels_to_search = list(range(0, self.channels))
+                channels_to_search = [c for c in channels_to_search if c not in changed_columns]
+                best_column, _ = self._find_best(modified, dist, to_maximize, channels_to_search)
+                changed_columns.append(best_column)
                 if best_column is None:
                     break
 
                 modified[0][best_column] = dist[0][best_column]
                 explanation.append(best_column)
+
+                """channels_to_search = list(range(0, self.channels))
+                channels_to_search = [c for c in channels_to_search if c not in changed_columns]
+                best_columns, _ = self._find_bests(modified, dist, to_maximize, n_bests=5, channels_to_search=channels_to_search)
+                for best_column in best_columns:
+                    changed_columns.append(best_column)
+                    modified[0][best_column] = dist[0][best_column]
+                    explanation.append(best_column)"""
 
         other = modified
         target = np.argmax(self.clf(other), axis=1)
@@ -323,7 +357,7 @@ class OptimizedSearch(BaseExplanation):
     ):
         super().__init__(clf, timeseries, labels, **kwargs)
         self.discrete_state = False
-        self.backup = BruteForceSearch(clf, timeseries, labels, threads=1, **kwargs)
+        self.backup = BruteForceSearch(clf, timeseries, labels, num_distractors=num_distractors, threads=1, **kwargs)
         self.max_attemps = max_attempts
         self.maxiter = maxiter
         self.restarts = restarts

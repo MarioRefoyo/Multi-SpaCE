@@ -62,7 +62,7 @@ def calculate_change_mask(x_orig, x_cf, x_nun=None, verbose=0):
 
 
 def load_dataset_for_eval(dataset, model_to_explain, osc_names):
-    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), min_max_scaling=False, data_path="./experiments/data")
+    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), scaling="none", backend="tf", data_path="./experiments/data")
     y_train, y_test = label_encoder(y_train, y_test)
     data_tuple = (X_train, y_train, X_test, y_test)
 

@@ -10,7 +10,7 @@ on Non-Dominated Sorting Genetic Algorithm II (NSGA-II), Multi-SpaCE offers a Pa
 trade-offs between objectives. The optimization task identifies the points in the original input to modify, substituting their values with 
 those of the Nearest Unlike Neighbor (NUN).
 
-![Multi-SpaCE.drawio.png](Multi-SpaCE.drawio.png)
+![Multi-SpaCE.drawio.png](Multi-SpaCE.png)
 
 # Source Code
 The source code of Multi-SubSpaCE can be found in `./methods/MultiSubSpaCECF.py`. The class within this file extends

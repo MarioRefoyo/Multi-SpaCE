@@ -3,6 +3,7 @@
   "subset": true,
   "subset_number": 100,
 
+  "scaling": "none",
   "autoencoder": [false, true],
   "w_value": 0.5,
   "tau_value": 0.5,

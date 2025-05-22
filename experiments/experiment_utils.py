@@ -61,13 +61,86 @@ def store_partial_cfs(results, s_start, s_end, dataset, model_to_explain_name, f
         pickle.dump(results, f, pickle.HIGHEST_PROTOCOL)
 
 
-def local_data_loader(dataset, min_max_scaling, data_path="../../data"):
+def min_max_scale_data(X_train, X_test):
+    max = 1
+    min = 0
+    """maximums = X_train.max(axis=(0, 1))
+    minimums = X_train.min(axis=(0, 1))"""
+    data_max = X_train.max()
+    data_min = X_train.min()
+
+    # Min Max scale data between 0 and 1
+    X_train_scaled = (X_train - data_min) / (data_max - data_min)
+    X_train_scaled = X_train_scaled * (max - min) + min
+
+    X_test_scaled = (X_test - data_min) / (data_max - data_min)
+    X_test_scaled = X_test_scaled * (max - min) + min
+
+    return X_train_scaled, X_test_scaled
+
+
+def standard_scale_data(X_train, X_test):
+    X_train_mean = X_train.mean()
+    X_train_std = X_train.std()
+    X_train = (X_train - X_train_mean) / X_train_std
+    X_test = (X_test - X_train_mean) / X_train_std
+    return X_train, X_test
+
+
+def ucr_data_loader(dataset, scaling, backend="torch", store_path="../../data/UCR"):
+    X_train, y_train, X_test, y_test = UCR_UEA_datasets().load_dataset(dataset)
+    if X_train is not None:
+        np.save(f"{store_path}/{dataset}/X_train.npy", X_train)
+        np.save(f"{store_path}/{dataset}/X_test.npy", X_test)
+        np.save(f"{store_path}/{dataset}/y_train.npy", y_train)
+        np.save(f"{store_path}/{dataset}/y_test.npy", y_test)
+
+        # Scaling
+        if scaling == "min_max":
+            X_train, X_test = min_max_scale_data(X_train, X_test)
+        elif scaling == "standard":
+            X_train, X_test = standard_scale_data(X_train, X_test)
+        elif scaling == "none":
+            pass
+        else:
+            raise ValueError("Not valid scaling value")
+
+        # Backend
+        if backend == "torch":
+            X_train = X_train.transpose(0, 2, 1)
+            X_test = X_test.transpose(0, 2, 1)
+        elif backend == "tf":
+            pass
+        else:
+            raise ValueError("backend not valid. Choose torch or tf")
+    return X_train, y_train, X_test, y_test
+
+
+def local_data_loader(dataset, scaling, backend="torch", data_path="../../data"):
     X_train = np.load(f'{data_path}/UCR/{dataset}/X_train.npy', allow_pickle=True)
     X_test = np.load(f'{data_path}/UCR/{dataset}/X_test.npy', allow_pickle=True)
     y_train = np.load(f'{data_path}/UCR/{dataset}/y_train.npy', allow_pickle=True)
     y_test = np.load(f'{data_path}/UCR/{dataset}/y_test.npy', allow_pickle=True)
-    if min_max_scaling:
-        X_train, X_test = scale_data(X_train, X_test)
+
+    # Scaling
+    if scaling == "min_max":
+        X_train, X_test = min_max_scale_data(X_train, X_test)
+    elif scaling == "standard":
+        X_train, X_test = standard_scale_data(X_train, X_test)
+    elif scaling == "none":
+        pass
+    else:
+        raise ValueError("Not valid scaling value")
+
+    # Backend
+    if backend == "torch":
+        X_train = X_train.transpose(0, 2, 1)
+        X_test = X_test.transpose(0, 2, 1)
+    elif backend == "tf":
+        pass
+    else:
+        raise ValueError("backend not valid. Choose torch or tf")
+
     return X_train, y_train, X_test, y_test
 
 
@@ -101,24 +174,6 @@ def label_encoder(training_labels, testing_labels):
     return y_train, y_test
 
 
-def scale_data(X_train, X_test):
-    max = 1
-    min = 0
-    """maximums = X_train.max(axis=(0, 1))
-    minimums = X_train.min(axis=(0, 1))"""
-    data_max = X_train.max()
-    data_min = X_train.min()
-
-    # Min Max scale data between 0 and 1
-    X_train_scaled = (X_train - data_min) / (data_max - data_min)
-    X_train_scaled = X_train_scaled * (max - min) + min
-
-    X_test_scaled = (X_test - data_min) / (data_max - data_min)
-    X_test_scaled = X_test_scaled * (max - min) + min
-
-    return X_train_scaled, X_test_scaled
-
-
 def nun_retrieval(query, predicted_label, distance, n_neighbors, X_train, y_train, y_pred, from_true_labels=False):
     df_init = pd.DataFrame(y_train, columns=['true_label'])
     df_init["pred_label"] = y_pred
@@ -136,15 +191,3 @@ def nun_retrieval(query, predicted_label, distance, n_neighbors, X_train, y_trai
     index = df[df[label_name] != predicted_label].index[ind[0][:]]
     label = df[df.index.isin(index.tolist())].values[0]
     return distances, index, label
-
-
-def ucr_data_loader(dataset, min_max_scaling, store_path="../../data/UCR"):
-    X_train, y_train, X_test, y_test = UCR_UEA_datasets().load_dataset(dataset)
-    if X_train is not None:
-        np.save(f"{store_path}/{dataset}/X_train.npy", X_train)
-        np.save(f"{store_path}/{dataset}/X_test.npy", X_test)
-        np.save(f"{store_path}/{dataset}/y_train.npy", y_train)
-        np.save(f"{store_path}/{dataset}/y_test.npy", y_test)
-    if min_max_scaling:
-        X_train, X_test = scale_data(X_train, X_test)
-    return X_train, y_train, X_test, y_test

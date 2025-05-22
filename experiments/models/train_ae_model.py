@@ -10,7 +10,7 @@ import tensorflow as tf
 from tensorflow.python.framework.errors_impl import ResourceExhaustedError
 from matplotlib import pyplot as plt
 
-from experiments.experiment_utils import (local_data_loader, ucr_data_loader, label_encoder, scale_data,
+from experiments.experiment_utils import (local_data_loader, ucr_data_loader, label_encoder,
                                           load_parameters_from_json, generate_settings_combinations)
 from experiments.models.utils import AEModelConstructorV1
 
@@ -149,16 +149,16 @@ def train_ae_experiment(dataset, exp_name, exp_hash, params):
     random.seed(params["seed"])
 
     # Load data
-    min_max_scaling = params["min_max_scaling"]
+    scaling = params["scaling"]
     if os.path.isdir(f"./experiments/data/UCR/{dataset}"):
-        X_train, y_train, X_test, y_test = local_data_loader(dataset, min_max_scaling, data_path="./experiments/data")
+        X_train, y_train, X_test, y_test = local_data_loader(str(dataset), scaling, backend="tf",
+                                                             data_path="./experiments/data")
     else:
         os.makedirs(f"./experiments/data/UCR/{dataset}")
-        X_train, y_train, X_test, y_test = ucr_data_loader(dataset, min_max_scaling, store_path="./experiments/data/UCR")
+        X_train, y_train, X_test, y_test = ucr_data_loader(dataset, scaling, backend="tf",
+                                                           store_path="./experiments/data/UCR")
         if X_train is None:
             raise ValueError(f"Dataset {dataset} could not be downloaded")
-    min, max = X_train.min(), X_train.max()
-    data_range = max - min
 
     # Define model architecture
     input_shape = X_train.shape[1:]

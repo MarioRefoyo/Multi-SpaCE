@@ -86,6 +86,126 @@ class ClassificationModelConstructorV1:
         return model
 
 
+class InceptionModelConstructorV1:
+    def __init__(self, input_shape, n_classes, depth, n_filters,
+                 use_residual=True, use_bottleneck=True, bottleneck_size=32, kernel_size=40):
+        self.input_shape = input_shape
+        self.n_classes = n_classes
+        self.depth = depth
+        self.n_filters = n_filters
+        self.use_residual = use_residual
+        self.use_bottleneck = use_bottleneck
+        self.bottleneck_size = bottleneck_size
+        self.kernel_size = kernel_size
+
+    def _inception_module(self, input_tensor, stride=1, activation="linear"):
+        from tensorflow import keras
+
+        if self.use_bottleneck and int(input_tensor.shape[-1]) > 1:
+            input_inception = keras.layers.Conv1D(
+                filters=self.bottleneck_size,
+                kernel_size=1,
+                padding="same",
+                activation=activation,
+                use_bias=False,
+            )(input_tensor)
+        else:
+            input_inception = input_tensor
+
+        # kernel_size_s = [3, 5, 8, 11, 17]
+        kernel_size_s = [self.kernel_size // (2 ** i) for i in range(3)]
+
+        conv_list = []
+
+        for i in range(len(kernel_size_s)):
+            conv_list.append(
+                keras.layers.Conv1D(
+                    filters=self.n_filters,
+                    kernel_size=kernel_size_s[i],
+                    strides=stride,
+                    padding="same",
+                    activation=activation,
+                    use_bias=False,
+                )(input_inception)
+            )
+
+        max_pool_1 = keras.layers.MaxPool1D(
+            pool_size=3, strides=stride, padding="same"
+        )(input_tensor)
+
+        conv_6 = keras.layers.Conv1D(
+            filters=self.n_filters,
+            kernel_size=1,
+            padding="same",
+            activation=activation,
+            use_bias=False,
+        )(max_pool_1)
+
+        conv_list.append(conv_6)
+
+        x = keras.layers.Concatenate(axis=2)(conv_list)
+        x = keras.layers.BatchNormalization(
+            momentum=0.9,  # Matches PyTorch: 0.9 * old + 0.1 * new
+            epsilon=1e-5,  # PyTorch's epsilon value
+            axis=-1
+        )(x)
+        x = keras.layers.Activation(activation="relu")(x)
+        return x
+
+    def _shortcut_layer(self, input_tensor, out_tensor):
+        from tensorflow import keras
+
+        shortcut_y = keras.layers.Conv1D(
+            filters=int(out_tensor.shape[-1]),
+            kernel_size=1,
+            padding="same",
+            use_bias=False,
+        )(input_tensor)
+        shortcut_y = keras.layers.BatchNormalization(
+            momentum=0.9,  # Matches PyTorch: 0.9 * old + 0.1 * new
+            epsilon=1e-5,  # PyTorch's epsilon value
+            axis=-1
+        )(shortcut_y)
+
+        x = keras.layers.Add()([shortcut_y, out_tensor])
+        x = keras.layers.Activation("relu")(x)
+        return x
+
+    def build_network(self):
+        """Construct a network and return its input and output layers.
+
+        ----------
+        input_shape : tuple
+            The shape of the data fed into the input layer
+
+        Returns
+        -------
+        input_layer : a keras layer
+        output_layer : a keras layer
+        """
+        from tensorflow import keras
+
+        input_layer = keras.layers.Input(self.input_shape)
+
+        x = input_layer
+        input_res = input_layer
+
+        for d in range(self.depth):
+            x = self._inception_module(x)
+
+            if self.use_residual and d % 3 == 2:
+                x = self._shortcut_layer(input_res, x)
+                input_res = x
+
+        gap_layer = keras.layers.GlobalAveragePooling1D()(x)
+
+        output_layer = keras.layers.Dense(self.n_classes, activation='softmax')(gap_layer)
+
+        model = keras.models.Model(inputs=input_layer, outputs=output_layer)
+
+        return model
+
+
 class AEModelConstructorV1:
     def __init__(self, input_shape, stride, compression_rate):
         self.input_shape = input_shape

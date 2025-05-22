@@ -3,7 +3,8 @@
   "subset": true,
   "subset_number": 100,
 
-  "number_distractors": 2,
+  "scaling": "none",
+  "number_distractors": 1,
   "max_attempts": 1000,
   "max_iter": 1000,
   "restarts": 5,
