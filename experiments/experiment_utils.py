@@ -7,9 +7,13 @@ import hashlib
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import classification_report
 from tslearn.neighbors import KNeighborsTimeSeries
-from tslearn.datasets import UCR_UEA_datasets
+import torch
+import tensorflow as tf
+
+from experiments.data_utils import local_data_loader, label_encoder
+from experiments.models.pytorch_utils import model_selector
 
 
 def get_subsample(X_test, y_test, n_instances, seed):
@@ -61,119 +65,6 @@ def store_partial_cfs(results, s_start, s_end, dataset, model_to_explain_name, f
         pickle.dump(results, f, pickle.HIGHEST_PROTOCOL)
 
 
-def min_max_scale_data(X_train, X_test):
-    max = 1
-    min = 0
-    """maximums = X_train.max(axis=(0, 1))
-    minimums = X_train.min(axis=(0, 1))"""
-    data_max = X_train.max()
-    data_min = X_train.min()
-
-    # Min Max scale data between 0 and 1
-    X_train_scaled = (X_train - data_min) / (data_max - data_min)
-    X_train_scaled = X_train_scaled * (max - min) + min
-
-    X_test_scaled = (X_test - data_min) / (data_max - data_min)
-    X_test_scaled = X_test_scaled * (max - min) + min
-
-    return X_train_scaled, X_test_scaled
-
-
-def standard_scale_data(X_train, X_test):
-    X_train_mean = X_train.mean()
-    X_train_std = X_train.std()
-    X_train = (X_train - X_train_mean) / X_train_std
-    X_test = (X_test - X_train_mean) / X_train_std
-    return X_train, X_test
-
-
-def ucr_data_loader(dataset, scaling, backend="torch", store_path="../../data/UCR"):
-    X_train, y_train, X_test, y_test = UCR_UEA_datasets().load_dataset(dataset)
-    if X_train is not None:
-        np.save(f"{store_path}/{dataset}/X_train.npy", X_train)
-        np.save(f"{store_path}/{dataset}/X_test.npy", X_test)
-        np.save(f"{store_path}/{dataset}/y_train.npy", y_train)
-        np.save(f"{store_path}/{dataset}/y_test.npy", y_test)
-
-        # Scaling
-        if scaling == "min_max":
-            X_train, X_test = min_max_scale_data(X_train, X_test)
-        elif scaling == "standard":
-            X_train, X_test = standard_scale_data(X_train, X_test)
-        elif scaling == "none":
-            pass
-        else:
-            raise ValueError("Not valid scaling value")
-
-        # Backend
-        if backend == "torch":
-            X_train = X_train.transpose(0, 2, 1)
-            X_test = X_test.transpose(0, 2, 1)
-        elif backend == "tf":
-            pass
-        else:
-            raise ValueError("backend not valid. Choose torch or tf")
-    return X_train, y_train, X_test, y_test
-
-
-def local_data_loader(dataset, scaling, backend="torch", data_path="../../data"):
-    X_train = np.load(f'{data_path}/UCR/{dataset}/X_train.npy', allow_pickle=True)
-    X_test = np.load(f'{data_path}/UCR/{dataset}/X_test.npy', allow_pickle=True)
-    y_train = np.load(f'{data_path}/UCR/{dataset}/y_train.npy', allow_pickle=True)
-    y_test = np.load(f'{data_path}/UCR/{dataset}/y_test.npy', allow_pickle=True)
-
-    # Scaling
-    if scaling == "min_max":
-        X_train, X_test = min_max_scale_data(X_train, X_test)
-    elif scaling == "standard":
-        X_train, X_test = standard_scale_data(X_train, X_test)
-    elif scaling == "none":
-        pass
-    else:
-        raise ValueError("Not valid scaling value")
-
-    # Backend
-    if backend == "torch":
-        X_train = X_train.transpose(0, 2, 1)
-        X_test = X_test.transpose(0, 2, 1)
-    elif backend == "tf":
-        pass
-    else:
-        raise ValueError("backend not valid. Choose torch or tf")
-
-    return X_train, y_train, X_test, y_test
-
-
-def label_encoder(training_labels, testing_labels):
-    # If label represent integers, try to cast it. If it is not possible, then resort to Label Encoding
-    try:
-        y_train = []
-        for label in training_labels:
-            y_train.append(int(float(label)))
-        y_test = []
-        for label in testing_labels:
-            y_test.append(int(float(label)))
-
-        # Check if labels are consecutive
-        if sorted(y_train) == list(range(min(y_train), max(y_train) + 1)):
-            # Add class 0 in case it does not exist
-            y_train, y_test = np.array(y_train).reshape(-1, 1), np.array(y_test).reshape(-1, 1)
-            classes = np.unique(y_train)
-            if 0 not in classes:
-                y_train = y_train - 1
-                y_test = y_test - 1
-        else:
-            # Raise exception so each class is treated as a category
-            raise ValueError("The classes can be casted to integers but they are non consecutive numbers. Treating them as categories")
-
-    except Exception:
-        le = LabelEncoder()
-        le.fit(np.concatenate((training_labels, testing_labels), axis=0))
-        y_train = le.transform(training_labels)
-        y_test = le.transform(testing_labels)
-    return y_train, y_test
-
-
 def nun_retrieval(query, predicted_label, distance, n_neighbors, X_train, y_train, y_pred, from_true_labels=False):
     df_init = pd.DataFrame(y_train, columns=['true_label'])
     df_init["pred_label"] = y_pred
@@ -191,3 +82,101 @@ def nun_retrieval(query, predicted_label, distance, n_neighbors, X_train, y_trai
     index = df[df[label_name] != predicted_label].index[ind[0][:]]
     label = df[df.index.isin(index.tolist())].values[0]
     return distances, index, label
+
+
+def prepare_experiment(dataset, params, model_to_explain):
+    # Set seed
+    if params["seed"] is not None:
+        np.random.seed(params["seed"])
+        random.seed(params["seed"])
+
+    # Load dataset data
+    scaling = params["scaling"]
+    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), scaling, backend="tf",
+                                                         data_path="./experiments/data")
+    y_train, y_test = label_encoder(y_train, y_test)
+    ts_length = X_train.shape[1]
+    n_channels = X_train.shape[2]
+    classes = np.unique(y_train)
+    n_classes = len(classes)
+
+    # Get a subset of testing data if specified
+    if (params["subset"]) & (len(y_test) > params["subset_number"]):
+        X_test, y_test, subset_idx = get_subsample(X_test, y_test, params["subset_number"], params["seed"])
+    else:
+        subset_idx = np.arange(len(X_test))
+
+    # Get model
+    model_folder = f'experiments/models/{dataset}/{model_to_explain}'
+    model_wrapper = load_model(model_folder, dataset, n_channels, ts_length, n_classes)
+
+    # Predict
+    y_pred_test_logits = model_wrapper.predict(X_test)
+    y_pred_train_logits = model_wrapper.predict(X_train)
+    y_pred_test = np.argmax(y_pred_test_logits, axis=1)
+    y_pred_train = np.argmax(y_pred_train_logits, axis=1)
+    # Classification report
+    print(classification_report(y_test, y_pred_test))
+
+    return X_train, y_train, X_test, y_test, subset_idx, n_classes, model_wrapper, y_pred_train, y_pred_test
+
+
+def load_model(model_folder, dataset, n_channels, ts_length, n_classes):
+    if os.path.exists(f'{model_folder}/model.hdf5'):
+        backend = "tf"
+        model = tf.keras.models.load_model(f'{model_folder}/model.hdf5')
+
+    elif os.path.exists(f'{model_folder}/model_weights.pth'):
+        backend = "torch"
+        # Load train params
+        with open(f"{model_folder}/train_params.json") as f:
+            train_params = json.load(f)
+        model, _, _, _ = model_selector(dataset, n_channels, ts_length, n_classes, train_params)
+        model_weights = torch.load(f'{model_folder}/model_weights.pth', weights_only=True)
+        model.load_state_dict(model_weights)
+
+    else:
+        raise ValueError("Not valid model path or backend")
+    model_wrapper = ModelWrapper(model, backend)
+    return model_wrapper
+
+
+class ModelWrapper:
+    def __init__(self, model, backend):
+        self.model = model
+        self.backend = backend.lower()
+
+        # Prepare for backend
+        if self.backend == "torch":
+            self.framework = torch
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.model.to(self.device)
+            self.model.eval()
+        elif self.backend == "tf":
+            self.framework = tf
+        else:
+            raise ValueError("Unsupported backend: choose 'torch' or 'tf'.")
+
+    def predict(self, x: np.ndarray, input_data_format="tf") -> np.ndarray:
+        assert input_data_format in ["tf", "torch"]
+
+        # Append
+        if len(x.shape) == 2:
+            x = np.expand_dims(x, axis=0)
+        if self.backend == "torch":
+            if input_data_format == "tf":
+                # Swap axes: from (B, T, F) to (B, F, T)
+                x = np.transpose(x, (0, 2, 1))
+            x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
+            with torch.no_grad():
+                output = self.model(x_tensor)
+                output = torch.nn.functional.softmax(output, dim=1)
+            return output.detach().cpu().numpy()
+
+        elif self.backend == "tf":
+            if input_data_format == "torch":
+                # Swap axes: from (B, F, T) to (B, T, F)
+                x = np.transpose(x, (0, 2, 1))
+            x_tensor = tf.convert_to_tensor(x, dtype=tf.float32)
+            output = self.model.predict(x_tensor, verbose=0)
+            return output

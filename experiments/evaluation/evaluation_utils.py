@@ -12,7 +12,7 @@ from methods.outlier_calculators import AEOutlierCalculator, IFOutlierCalculator
 from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, get_subsample
 from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
 from methods.MultiSubSpaCE.FitnessFunctions import fitness_function_mo
-from experiments.models.utils import load_model
+from experiments.experiment_utils import load_model
 
 
 def get_start_end_subsequence_positions(orig_change_mask):
@@ -458,7 +458,7 @@ def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, s
         if counterfactuals_i.shape[0] > 1:
             desired_class = desired_classes[i]
             # Sort by objective weights and take the best
-            predicted_probs = model_wrapper.predict(counterfactuals_i, verbose=0)
+            predicted_probs = model_wrapper.predict(counterfactuals_i)
             # Get outlier scores from AE to get the best CF
             if outlier_calculators is not None:
                 aux_outlier_scores = outlier_calculators["AE"].get_outlier_scores(counterfactuals_i)

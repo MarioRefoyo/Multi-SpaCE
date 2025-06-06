@@ -12,15 +12,15 @@ import tensorflow as tf
 import torch
 from sklearn.metrics import classification_report
 
-from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, store_partial_cfs, \
-    ucr_data_loader, load_parameters_from_json, generate_settings_combinations, get_subsample
+from experiments.experiment_utils import store_partial_cfs, load_parameters_from_json,generate_settings_combinations
 from experiments.results.results_concatenator import concatenate_result_files
-from methods.outlier_calculators import AEOutlierCalculator
 
+from methods.outlier_calculators import AEOutlierCalculator
 from methods.MultiSubSpaCECF import MultiSubSpaCECF
 from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
 from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, NoneFI
-from experiments.models.utils import load_model
+
+from experiments.experiment_utils import prepare_experiment, load_model
 
 
 """DATASETS = [
@@ -38,15 +38,17 @@ DATASETS = [
 ]
 DATASETS = ['ECG200']
 
-# PARAMS_PATH = 'experiments/params_cf/multisubspace_final.json'
+PARAMS_PATH = 'experiments/params_cf/multisubspace_final.json'
+MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "cls_basic_train"
 # MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
-PARAMS_PATH = 'experiments/params_cf/multisubspace_final_pytorch.json'
-MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'fcn_pytorch'
+# PARAMS_PATH = 'experiments/params_cf/multisubspace_final_pytorch.json'
+# MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'fcn_pytorch'
 OC_EXPERIMENT_NAME = 'ae_basic_train'
+
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
-POOL_SIZE = 1
+POOL_SIZE = 10
 
 
 def get_counterfactual_worker(sample_dict):
@@ -118,37 +120,8 @@ def get_counterfactual_worker(sample_dict):
 
 
 def experiment_dataset(dataset, exp_name, params):
-    # Set seed
-    if params["seed"] is not None:
-        np.random.seed(params["seed"])
-        random.seed(params["seed"])
-
-    # Load data
-    scaling = params["scaling"]
-    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), scaling, backend="tf", data_path="./experiments/data")
-    y_train, y_test = label_encoder(y_train, y_test)
-    ts_length = X_train.shape[1]
-    n_channels = X_train.shape[2]
-    classes = np.unique(y_train)
-    n_classes = len(classes)
-
-    # Get a subset of testing data if specified
-    if (params["subset"]) & (len(y_test) > params["subset_number"]):
-        X_test, y_test, subset_idx = get_subsample(X_test, y_test, params["subset_number"], params["seed"])
-    else:
-        subset_idx = np.arange(len(X_test))
-
-    # Get model
-    model_folder = f'experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}'
-    model_wrapper = load_model(model_folder, dataset, n_channels, ts_length, n_classes)
-
-    # Predict
-    y_pred_test_logits = model_wrapper.predict(X_test)
-    y_pred_train_logits = model_wrapper.predict(X_train)
-    y_pred_test = np.argmax(y_pred_test_logits, axis=1)
-    y_pred_train = np.argmax(y_pred_train_logits, axis=1)
-    # Classification report
-    print(classification_report(y_test, y_pred_test))
+    X_train, y_train, X_test, y_test, subset_idx, n_classes, model_wrapper, y_pred_train, y_pred_test = prepare_experiment(
+        dataset, params, MODEL_TO_EXPLAIN_EXPERIMENT_NAME)
 
     # Get the NUNs
     if params["independent_channels_nun"]:

@@ -4,7 +4,7 @@
   "subset": true,
   "subset_number": 100,
 
-  "scaling": "standard",
+  "scaling": "none",
 
   "independent_channels_nun": false,
   "n_neighbors": 1,
