@@ -2,17 +2,14 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 import tensorflow as tf
-from TSInterpret.InterpretabilityModels.Saliency.TSR import TSR
+import torch
+import torch.nn.functional as F
 
 
 class FeatureImportanceMethod(ABC):
 
     def __init__(self, backend='tf'):
         self.backend = backend
-        if backend == 'tf':
-            self.feature_axis = 2
-        else:
-            raise ValueError('Backend not supported')
 
     @abstractmethod
     def calculate_feature_importance(self, instance, desired_target=None, **kwargs):
@@ -31,20 +28,44 @@ class NoneFI(FeatureImportanceMethod):
 
 class GraCAMPlusFI(FeatureImportanceMethod):
 
-    def __init__(self, backend, model):
+    def __init__(self, backend, model_wrapper):
         super().__init__(backend)
+        self.model_wrapper = model_wrapper
 
-        # Detect convolutional layers
-        conv_layer_names = [layer.name for layer in model.layers if 'conv1d' in layer.name]
-        if not conv_layer_names:
-            raise ValueError("Model has not convolutional layers. "
-                             "GradCAM++ needs convolutional layers to generate an explanation")
+        if self.backend == "tf":
+            # Detect convolutional layers
+            conv_layer_names = [layer.name for layer in model_wrapper.model.layers if 'conv1d' in layer.name]
+            if not conv_layer_names:
+                raise ValueError("Model has not convolutional layers. "
+                                 "GradCAM++ needs convolutional layers to generate an explanation")
+            else:
+                self.last_conv_layer_name = conv_layer_names[-1]
+            conv_layer = model_wrapper.model.get_layer(self.last_conv_layer_name)
+            self.heatmap_model = tf.keras.Model([model_wrapper.model.inputs], [conv_layer.output, model_wrapper.model.output])
+        elif self.backend == "torch":
+            self.activations = None
+            self.gradients = {}
+
+            conv_layers = [module for module in model_wrapper.model.modules() if isinstance(module, torch.nn.Conv1d)]
+            if not conv_layers:
+                raise ValueError("Model has no Conv1d layers. GradCAM++ requires convolutional layers.")
+            self.last_conv_layer = conv_layers[-1]
+            # Register hook to get gradients and activations
+            self._register_hooks()
         else:
-            self.last_conv_layer_name = conv_layer_names[-1]
-        conv_layer = model.get_layer(self.last_conv_layer_name)
-        self.heatmap_model = tf.keras.Model([model.inputs], [conv_layer.output, model.output])
+            raise ValueError("Not valid backend")
 
-    def calculate_feature_importance(self, instance, desired_target=None, **kwargs):
+    def _register_hooks(self):
+        def forward_hook(module, input, output):
+            self.activations = output
+
+        def backward_hook(module, grad_input, grad_output):
+            self.gradients = grad_output[0]
+
+        self.last_conv_layer.register_forward_hook(forward_hook)
+        self.last_conv_layer.register_full_backward_hook(backward_hook)
+
+    def _calculate_feature_importance_tf(self, instance, desired_target=None):
         # Calculate importance heatmap
         data_tensor = np.expand_dims(instance, axis=0)
 
@@ -89,16 +110,65 @@ class GraCAMPlusFI(FeatureImportanceMethod):
             expanded_heatmap = np.zeros(expanded_heatmap.shape)
         return expanded_heatmap
 
+    def _calculate_feature_importance_torch(self, instance, desired_target=None):
+        # Prepare input
+        device = next(self.model_wrapper.model.parameters()).device
+        data_tensor = torch.tensor(instance[None], dtype=torch.float32, device=device, requires_grad=True)
+        # Swap axes.... Improve this...
+        time_len = instance.shape[0]
+        features = instance.shape[1]
+        data_tensor = torch.swapaxes(data_tensor, 1, 2)
 
-class TSRFI(FeatureImportanceMethod):
+        # Forward pass
+        output = self.model_wrapper.model(data_tensor)
+        if desired_target is None:
+            category_id = output.argmax(dim=1).item()
+        else:
+            category_id = desired_target
+        selected_output = output[:, category_id]
 
-    def __init__(self, backend, model, ts_length, n_channels, method):
-        super().__init__(backend)
-        self.tsr = TSR(model, ts_length, n_channels, method=method, mode='time')
+        # Backward
+        self.model_wrapper.model.zero_grad()
+        selected_output.backward(retain_graph=True)
+
+        A = self.activations[0]  # [C, T]
+        dY_dA = self.gradients[0]  # [C, T]
+
+        # Closed-form alpha computation
+        alpha_numer = dY_dA.pow(2)  # [C, T]
+        alpha_denom = (
+                2 * alpha_numer +
+                A * dY_dA.pow(3)
+        ).sum(dim=1, keepdim=True)  # [C, 1]
+        alpha_denom = torch.where(alpha_denom != 0, alpha_denom, torch.tensor(1e-10, device=A.device))
+        alpha = alpha_numer / alpha_denom  # [C, T]
+
+        # Weights: alpha * positive_grad
+        positive_grad = F.relu(dY_dA)  # [C, T]
+        weights = (alpha * positive_grad).sum(dim=1)  # [C]
+
+        # Weighted sum of activations
+        grad_cam_map = torch.sum(weights[:, None] * A, dim=0)  # [T]
+        heatmap = F.relu(grad_cam_map)
+
+        # Normalize
+        heatmap -= heatmap.min()
+        heatmap /= heatmap.max() + 1e-10
+        heatmap = heatmap.detach().cpu().numpy()
+
+        # Interpolate to match input shape
+        interp_heatmap = np.interp(np.linspace(0, 1, time_len), np.linspace(0, 1, len(heatmap)), heatmap)
+        expanded_heatmap = np.tile(interp_heatmap.reshape(-1, 1), (1, features))
+
+        if np.isnan(expanded_heatmap).any():
+            expanded_heatmap = np.zeros_like(expanded_heatmap)
+
+        return expanded_heatmap
 
     def calculate_feature_importance(self, instance, desired_target=None, **kwargs):
-        data_tensor = np.expand_dims(instance, axis=0)
-        if desired_target is None:
-            desired_target = np.argmax(self.tsr.model(data_tensor), axis=1)[0]
-        heatmap = self.tsr.explain(data_tensor, labels=desired_target, TSR=True)
-        return heatmap
+        if self.backend == "tf":
+            return self._calculate_feature_importance_tf(instance, desired_target)
+        elif self.backend == "torch":
+            return self._calculate_feature_importance_torch(instance, desired_target)
+        else:
+            raise ValueError("Not valid backend.")

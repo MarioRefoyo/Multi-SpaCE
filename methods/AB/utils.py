@@ -65,12 +65,13 @@ def native_guide_retrieval(query, target_label, distance, n_neighbors, X_train, 
     return df[df['label'] == target_label].index[ind[0][:]]
 
 
+# Original implementation
 def target_(model, instance):
     target = np.argsort((model.predict_proba(instance.reshape(1,instance.shape[0],instance.shape[1]))))[0][-2:-1][0]
     return target
 
 
-def target_adapted(model, instance):
-    preds = model.predict(instance.reshape(1, instance.shape[1], instance.shape[0]))
+def target_adapted(model_wrapper, instance):
+    preds = model_wrapper.predict(instance, input_data_format="torch")
     target = np.argsort(preds)[0][-2:-1][0]
     return target

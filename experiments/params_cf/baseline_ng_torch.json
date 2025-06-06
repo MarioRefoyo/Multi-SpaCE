@@ -1,0 +1,8 @@
+{
+  "seed": 24,
+  "subset": true,
+  "subset_number": 100,
+
+  "scaling": "standard",
+  "fi_method": "gradcam++"
+}

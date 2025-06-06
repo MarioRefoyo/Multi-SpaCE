@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import tensorflow as tf
+import torch
 from sklearn.metrics import classification_report
 
 from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, store_partial_cfs, \
@@ -17,7 +18,8 @@ from experiments.results.results_concatenator import concatenate_result_files
 
 from methods.NGCF import NGCF
 from methods.nun_finders import GlobalNUNFinder
-from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, NoneFI, TSRFI
+from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, NoneFI
+from experiments.models.utils import load_model
 
 
 DATASETS = [
@@ -26,9 +28,12 @@ DATASETS = [
     'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso',
     'NonInvasiveFatalECGThorax2', 'CBF',
 ]
+DATASETS = ['ECG200']
 
-PARAMS_PATH = 'experiments/params_cf/baseline_ng.json'
-MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
+PARAMS_PATH = 'experiments/params_cf/baseline_ng_torch.json'
+# MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
+MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'fcn_pytorch'
+
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
@@ -43,28 +48,33 @@ def get_counterfactual_worker(sample_dict):
     x_orig_samples_worker = sample_dict["x_orig_samples"]
     nun_examples_worker = sample_dict["nun_examples"]
     desired_targets_worker = sample_dict["desired_targets"]
+    n_classes = sample_dict["n_classes"]
+    ts_length = x_orig_samples_worker.shape[1]
+    n_channels = x_orig_samples_worker.shape[2]
 
     # Set seed in thread. ToDo: is it really necessary?
     if params["seed"] is not None:
         np.random.seed(params["seed"])
         tf.random.set_seed(params["seed"])
+        torch.manual_seed(params["seed"])
+        torch.cuda.manual_seed(params["seed"])
         random.seed(params["seed"])
 
     # Get model
-    model_worker = tf.keras.models.load_model(f'experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/model.hdf5')
+    model_folder = f'experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}'
+    model_wrapper = load_model(model_folder, dataset, n_channels, ts_length, n_classes)
+    backend = model_wrapper.backend
 
     # Get FI method for initialization
     if params["fi_method"] == "none":
-        fi_method = NoneFI('tf')
+        fi_method = NoneFI(backend)
     elif params["fi_method"] == "gradcam++":
-        fi_method = GraCAMPlusFI('tf', model_worker)
-    elif (params["fi_method"] == "IG") or (params["init_fi"] == "SG") or (params["init_fi"] == "FO"):
-        fi_method = TSRFI('tf', model_worker, x_orig_samples_worker.shape[1], x_orig_samples_worker.shape[2], params["init_fi"])
+        fi_method = GraCAMPlusFI(backend, model_wrapper)
     else:
         raise ValueError("The provided init_fi is not valid.")
 
     # Instantiate the Counterfactual Explanation method
-    cf_explainer = NGCF(model_worker, 'tf', fi_method)
+    cf_explainer = NGCF(model_wrapper, fi_method)
 
     # Generate counterfactuals
     results = []
@@ -91,6 +101,10 @@ def experiment_dataset(dataset, exp_name, params):
     scaling = params["scaling"]
     X_train, y_train, X_test, y_test = local_data_loader(str(dataset), scaling, backend="tf", data_path="./experiments/data")
     y_train, y_test = label_encoder(y_train, y_test)
+    ts_length = X_train.shape[1]
+    n_channels = X_train.shape[2]
+    classes = np.unique(y_train)
+    n_classes = len(classes)
 
     # Get a subset of testing data if specified
     if (params["subset"]) & (len(y_test) > params["subset_number"]):
@@ -98,12 +112,13 @@ def experiment_dataset(dataset, exp_name, params):
     else:
         subset_idx = np.arange(len(X_test))
 
-    # Load model
-    model = tf.keras.models.load_model(f'experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/model.hdf5')
+    # Get model
+    model_folder = f'experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}'
+    model_wrapper = load_model(model_folder, dataset, n_channels, ts_length, n_classes)
 
     # Predict
-    y_pred_test_logits = model.predict(X_test, verbose=0)
-    y_pred_train_logits = model.predict(X_train, verbose=0)
+    y_pred_test_logits = model_wrapper.predict(X_test)
+    y_pred_train_logits = model_wrapper.predict(X_train)
     y_pred_test = np.argmax(y_pred_test_logits, axis=1)
     y_pred_train = np.argmax(y_pred_train_logits, axis=1)
     # Classification report
@@ -136,6 +151,7 @@ def experiment_dataset(dataset, exp_name, params):
                 "x_orig_samples": x_orig_samples,
                 "nun_examples": nun_examples,
                 "desired_targets": desired_targets,
+                "n_classes": n_classes
             }
             samples.append(sample_dict)
 

@@ -3,7 +3,7 @@ __pycache__
 .idea/*
 experiments/data/*
 experiments/results/*
-experiments/models/*
+experiments/models/*/
 !experiments/models/create_dataset_info.ipynb
 !experiments/models/train_ae_model.py
 !experiments/models/train_if_model.py

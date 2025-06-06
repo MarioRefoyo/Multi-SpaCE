@@ -12,6 +12,7 @@ from methods.outlier_calculators import AEOutlierCalculator, IFOutlierCalculator
 from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, get_subsample
 from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
 from methods.MultiSubSpaCE.FitnessFunctions import fitness_function_mo
+from experiments.models.utils import load_model
 
 
 def get_start_end_subsequence_positions(orig_change_mask):
@@ -61,16 +62,23 @@ def calculate_change_mask(x_orig, x_cf, x_nun=None, verbose=0):
     return change_mask
 
 
-def load_dataset_for_eval(dataset, model_to_explain, osc_names):
-    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), scaling="none", backend="tf", data_path="./experiments/data")
+def load_dataset_for_eval(dataset, model_to_explain, osc_names, scaling="none"):
+    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), scaling=scaling, backend="tf", data_path="./experiments/data")
     y_train, y_test = label_encoder(y_train, y_test)
     data_tuple = (X_train, y_train, X_test, y_test)
+    ts_length = X_train.shape[1]
+    n_channels = X_train.shape[2]
+    classes = np.unique(y_train)
+    n_classes = len(classes)
 
     # Load model
-    model = keras.models.load_model(f'./experiments/models/{dataset}/{model_to_explain}/model.hdf5')
+    model_folder = f'./experiments/models/{dataset}/{model_to_explain}'
+    model_wrapper = load_model(model_folder, dataset, n_channels, ts_length, n_classes)
+    backend = model_wrapper.backend
+
     # Predict
-    y_pred_test_logits = model.predict(X_test, verbose=0)
-    y_pred_train_logits = model.predict(X_train, verbose=0)
+    y_pred_test_logits = model_wrapper.predict(X_test)
+    y_pred_train_logits = model_wrapper.predict(X_train)
     y_pred_test = np.argmax(y_pred_test_logits, axis=1)
     y_pred_train = np.argmax(y_pred_train_logits, axis=1)
 
@@ -101,21 +109,21 @@ def load_dataset_for_eval(dataset, model_to_explain, osc_names):
     gknn_nuns, desired_classes, _ = nun_finder.retrieve_nuns(X_test, y_pred_test)
     gknn_nuns = gknn_nuns[:, 0, :, :]
     possible_nuns['gknn'] = gknn_nuns
-    # Get nuns with individual knn for channels
+    """# Get nuns with individual knn for channels
     nun_finder = IndependentNUNFinder(
         X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
         from_true_labels=False, backend='tf', model=model
     )
     iknn_nuns, desired_classes, _ = nun_finder.retrieve_nuns(X_test, y_pred_test)
     iknn_nuns = iknn_nuns[:, 0, :, :]
-    possible_nuns['iknn'] = iknn_nuns
+    possible_nuns['iknn'] = iknn_nuns"""
     # NOTE: DESIRED CLASSES ARE ALWAYS THE SAME
 
-    return data_tuple, y_pred_test, model, outlier_calculators, possible_nuns, desired_classes
+    return data_tuple, y_pred_test, model_wrapper, outlier_calculators, possible_nuns, desired_classes
 
 
 def process_method_dir(args):
-    dataset, model_to_explain, method_dir_name, methods, model, outlier_calculators, X_test, original_classes, possible_nuns, mo_weights, order = args
+    dataset, model_to_explain, method_dir_name, methods, model_wrapper, outlier_calculators, X_test, original_classes, possible_nuns, mo_weights, order = args
     results_df = pd.DataFrame()
     method_cfs_dataset = {}
 
@@ -142,7 +150,7 @@ def process_method_dir(args):
     # Calculate metrics
     method_name = methods[method_dir_name]
     method_metrics = calculate_method_metrics(
-        model, outlier_calculators, X_test[method_test_indexes],
+        model_wrapper, outlier_calculators, X_test[method_test_indexes],
         nuns[method_test_indexes], method_cfs, original_classes[method_test_indexes],
         method_name, mo_weights=mo_weights, order=order
     )
@@ -156,7 +164,7 @@ def process_method_dir(args):
 
 
 def calculate_metrics_for_dataset_mp(dataset, methods, model_to_explain,
-                                     data_tuple, original_classes, model, outlier_calculators, possible_nuns,
+                                     data_tuple, original_classes, model_wrapper, outlier_calculators, possible_nuns,
                                      mo_weights=None):
     X_train, y_train, X_test, y_test = data_tuple
 
@@ -168,7 +176,7 @@ def calculate_metrics_for_dataset_mp(dataset, methods, model_to_explain,
 
     # Prepare arguments for parallel processing
     args = [
-        (dataset, model_to_explain, method_dir_name, methods, model, outlier_calculators, X_test,
+        (dataset, model_to_explain, method_dir_name, methods, model_wrapper, outlier_calculators, X_test,
          original_classes, possible_nuns, mo_weights, i + 1)
         for i, method_dir_name in enumerate(valid_cf_solution_dirs)
     ]
@@ -409,7 +417,7 @@ def calculate_method_valids(model, X_test, counterfactuals, original_classes):
     return valids
 
 
-def calculate_method_metrics(model, outlier_calculators, X_test, nuns, solutions_in, original_classes,
+def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, solutions_in, original_classes,
                              method_name, mo_weights=None, order=None):
     # Get the results and separate them in counterfactuals and execution times
     solutions = copy.deepcopy(solutions_in)
@@ -440,7 +448,7 @@ def calculate_method_metrics(model, outlier_calculators, X_test, nuns, solutions
     n_subsequences = []
     best_cf_is = []
     if nuns[0] is not None:
-        desired_classes = np.argmax(model.predict(nuns, verbose=0), axis=1)
+        desired_classes = np.argmax(model_wrapper.predict(nuns), axis=1)
     else:
         desired_classes = None
     for i in tqdm(range(len(X_test))):
@@ -450,7 +458,7 @@ def calculate_method_metrics(model, outlier_calculators, X_test, nuns, solutions
         if counterfactuals_i.shape[0] > 1:
             desired_class = desired_classes[i]
             # Sort by objective weights and take the best
-            predicted_probs = model.predict(counterfactuals_i, verbose=0)
+            predicted_probs = model_wrapper.predict(counterfactuals_i, verbose=0)
             # Get outlier scores from AE to get the best CF
             if outlier_calculators is not None:
                 aux_outlier_scores = outlier_calculators["AE"].get_outlier_scores(counterfactuals_i)
@@ -469,7 +477,7 @@ def calculate_method_metrics(model, outlier_calculators, X_test, nuns, solutions
             counterfactual_i = counterfactuals_i[0].reshape(length, n_channels)
 
         # Predict counterfactual class probability
-        preds = model.predict(counterfactual_i.reshape(-1, length, n_channels), verbose=0)
+        preds = model_wrapper.predict(counterfactual_i)
         pred_class = np.argmax(preds, axis=1)[0]
 
         # Valids
@@ -534,7 +542,7 @@ def calculate_method_metrics(model, outlier_calculators, X_test, nuns, solutions
     if nuns[0] is None:
         valid_nuns = [np.nan]*len(nuns)
     else:
-        nun_preds = model.predict(nuns, verbose=0)
+        nun_preds = model_wrapper.predict(nuns)
         nun_pred_class = np.argmax(nun_preds, axis=1)
         valid_nuns = nun_pred_class != original_classes
 
