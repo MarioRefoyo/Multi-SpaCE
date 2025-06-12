@@ -12,7 +12,7 @@ from tslearn.neighbors import KNeighborsTimeSeries
 import torch
 import tensorflow as tf
 
-from experiments.data_utils import local_data_loader, label_encoder
+from experiments.data_utils import local_data_loader, ucr_data_loader, label_encoder
 from experiments.models.pytorch_utils import model_selector
 
 

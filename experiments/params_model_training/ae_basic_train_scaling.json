@@ -1,5 +1,5 @@
 {
-  "experiment_name": "ae_basic_train",
+  "experiment_name": "ae_basic_train_scaling",
 
   "seed": [42],
 
