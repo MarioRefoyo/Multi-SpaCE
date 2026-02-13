@@ -84,8 +84,8 @@ DATASETS = [
     'Wafer',
     'Yoga', # Doubt (0.79)
 ]
-# DATASETS = ['CBF', 'ECG200', 'Gunpoint', 'Chinatown', 'Coffee']
-PARAMS_PATH = 'experiments/params_model_training/ae_basic_train.json'
+DATASETS = ['ECG200', 'Gunpoint', 'Chinatown', 'Coffee', 'FordA']
+PARAMS_PATH = 'experiments/params_model_training/ae_basic_train_scaling.json'
 
 
 def get_permutation_reconstruction_scores(ae, X_train, X_test, y_train, y_test):
@@ -159,6 +159,7 @@ def train_ae_experiment(dataset, exp_name, exp_hash, params):
                                                            store_path="./experiments/data/UCR")
         if X_train is None:
             raise ValueError(f"Dataset {dataset} could not be downloaded")
+    y_train, y_test = label_encoder(y_train, y_test)
 
     # Define model architecture
     input_shape = X_train.shape[1:]

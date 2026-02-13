@@ -1,7 +1,7 @@
 # Multi-SpaCE
 This repository contains the code of "Multi-SpaCE: Multi-Objective Subsequence-based Sparse Counterfactual Explanations for Multivariate Time Series Classification".
 
-Multi-SpaCE extends our previous work, Sub-SpaCE \cite{refoyo2024subspace}, that uses a genetic algorithm (GA) with custom mutation
+Multi-SpaCE extends our previous work, [Sub-SpaCE](https://github.com/MarioRefoyo/Sub-SpaCE), that uses a genetic algorithm (GA) with custom mutation
 and initialization to generate counterfactual explanations by optimizing sparsity, plausibility and minimizing the number of subsequences. 
 Multi-SpaCE inherits all the good properties of Sub-SpaCE (such as its model-agnostic nature, its computational efficiency 
 or the validity of all the generated CFEs), while overcoming its two major limitations: its restriction to univariate data and its

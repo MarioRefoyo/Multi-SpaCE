@@ -4,7 +4,7 @@
   "seed": [42],
 
   "model_type": ["ae-cnn-shallow", "ae-cnn-simple", "ae-cnn-intermediate", "ae-cnn-complex"],
-  "min_max_scaling": [false],
+  "scaling": ["standard"],
   "compression_rate": [0.0625, 0.125],
   "temporal_strides": 2,
   "batch_size": 32,

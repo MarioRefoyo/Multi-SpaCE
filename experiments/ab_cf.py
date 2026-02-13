@@ -10,12 +10,13 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import tensorflow as tf
-from sklearn.metrics import classification_report
+import torch
 
-from experiments.experiment_utils import local_data_loader, label_encoder, store_partial_cfs, \
-    load_parameters_from_json, generate_settings_combinations, get_subsample
+
+from experiments.experiment_utils import store_partial_cfs, load_parameters_from_json
 from experiments.results.results_concatenator import concatenate_result_files
 from methods.ABCF import ABCF
+from experiments.experiment_utils import prepare_experiment, load_model
 
 
 DATASETS = [
@@ -31,9 +32,14 @@ DATASETS = [
     'NonInvasiveFatalECGThorax2', 'CBF',
 ]
 DATASETS = ['Coffee', 'CinCECGTorso']"""
+DATASETS = ['ECG200']
 
 PARAMS_PATH = 'experiments/params_cf/baseline_abcf.json'
-MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
+MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
+# MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
+# PARAMS_PATH = 'experiments/params_cf/baseline_abcf_torch.json'
+# MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'fcn_pytorch'
+
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
@@ -48,18 +54,25 @@ def get_counterfactual_worker(sample_dict):
     first_sample_i = sample_dict["first_sample_i"]
     x_orig_samples_worker = sample_dict["x_orig_samples"]
     y_orig_samples_worker = sample_dict["y_orig_samples"]
+    n_classes = sample_dict["n_classes"]
+    ts_length = x_orig_samples_worker.shape[1]
+    n_channels = x_orig_samples_worker.shape[2]
 
     # Set seed in thread. ToDo: is it really necessary?
     if params["seed"] is not None:
         np.random.seed(params["seed"])
         tf.random.set_seed(params["seed"])
+        torch.manual_seed(params["seed"])
+        torch.cuda.manual_seed(params["seed"])
         random.seed(params["seed"])
 
-    # Load model
-    model_worker = tf.keras.models.load_model(f'experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/model.hdf5')
+    # Get model
+    model_folder = f'experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}'
+    model_wrapper = load_model(model_folder, dataset, n_channels, ts_length, n_classes)
+    backend = model_wrapper.backend
 
     # Instantiate the Counterfactual Explanation method
-    cf_explainer = ABCF(model_worker, 'tf', X_train, y_train, window_pct=params["window_pct"])
+    cf_explainer = ABCF(model_wrapper, X_train, y_train, window_pct=params["window_pct"])
 
     # Generate counterfactuals
     results = []
@@ -76,32 +89,8 @@ def get_counterfactual_worker(sample_dict):
 
 
 def experiment_dataset(dataset, exp_name, params):
-    # Set seed
-    if params["seed"] is not None:
-        np.random.seed(params["seed"])
-        random.seed(params["seed"])
-
-    # Load dataset data
-    scaling = params["scaling"]
-    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), scaling, backend="tf", data_path="./experiments/data")
-    y_train, y_test = label_encoder(y_train, y_test)
-
-    # Get a subset of testing data if specified
-    if (params["subset"]) & (len(y_test) > params["subset_number"]):
-        X_test, y_test, subset_idx = get_subsample(X_test, y_test, params["subset_number"], params["seed"])
-    else:
-        subset_idx = np.arange(len(X_test))
-
-    # Load model
-    model = tf.keras.models.load_model(f'experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/model.hdf5')
-
-    # Predict
-    y_pred_test_logits = model.predict(X_test, verbose=0)
-    y_pred_train_logits = model.predict(X_train, verbose=0)
-    y_pred_test = np.argmax(y_pred_test_logits, axis=1)
-    y_pred_train = np.argmax(y_pred_train_logits, axis=1)
-    # Classification report
-    print(classification_report(y_test, y_pred_test))
+    X_train, y_train, X_test, y_test, subset_idx, n_classes, model_wrapper, y_pred_train, y_pred_test = prepare_experiment(
+        dataset, params, MODEL_TO_EXPLAIN_EXPERIMENT_NAME)
 
     # Get counterfactuals
     if MULTIPROCESSING:
@@ -119,7 +108,8 @@ def experiment_dataset(dataset, exp_name, params):
                 "params": params,
                 "first_sample_i": i,
                 "x_orig_samples": x_orig_samples,
-                "y_orig_samples": y_orig_samples
+                "y_orig_samples": y_orig_samples,
+                "n_classes": n_classes
             }
             samples.append(sample_dict)
 
@@ -132,7 +122,7 @@ def experiment_dataset(dataset, exp_name, params):
         concatenate_result_files(dataset, MODEL_TO_EXPLAIN_EXPERIMENT_NAME, exp_name)
 
     else:
-        cf_explainer = ABCF(model, 'tf', X_train, y_train, window_pct=params["window_pct"])
+        cf_explainer = ABCF(model_wrapper, X_train, y_train, window_pct=params["window_pct"])
 
         # Generate counterfactuals
         results = []

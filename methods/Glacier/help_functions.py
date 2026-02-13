@@ -362,7 +362,7 @@ counterfactual model needed
 
 
 def find_best_lr(
-    classifier,
+    model_wrapper,
     X_samples,
     pred_labels,
     autoencoder=None,
@@ -403,18 +403,18 @@ def find_best_lr(
                 random_state=random_state,
             )
 
-        cf_model.fit(classifier)
+        cf_model.fit(model_wrapper)
 
         if encoder and decoder:
             cf_embeddings, losses, _ = cf_model.transform(X_samples, pred_labels)
             cf_samples = decoder.predict(cf_embeddings)
             # predicted probabilities of CFs
-            z_pred = classifier.predict(cf_embeddings)
+            z_pred = model_wrapper.predict(cf_embeddings)
             cf_pred_labels = np.argmax(z_pred, axis=1)
         else:
             cf_samples, losses, _ = cf_model.transform(X_samples, pred_labels)
             # predicted probabilities of CFs
-            z_pred = classifier.predict(cf_samples)
+            z_pred = model_wrapper.predict(cf_samples)
             cf_pred_labels = np.argmax(z_pred, axis=1)
 
         valid_frac = validity_score(pred_labels, cf_pred_labels)

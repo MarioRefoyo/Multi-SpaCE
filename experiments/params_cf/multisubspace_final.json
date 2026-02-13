@@ -4,13 +4,15 @@
   "subset": true,
   "subset_number": 100,
 
+  "scaling": "none",
+
   "independent_channels_nun": false,
   "n_neighbors": 1,
 
   "population_size": 100,
   "change_subseq_mutation_prob": [0.75],
   "integrated_pruning_mutation_prob": [0],
-  "final_pruning_mutation_prob": [0.5],
+  "final_pruning_mutation_prob": [0.75],
   "add_subseq_mutation_prob": 0,
   "max_iter": [[75, 0, 25]],
   "init_fi": ["none"],

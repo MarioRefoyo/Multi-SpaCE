@@ -6,8 +6,8 @@ from .counterfactual_common import CounterfactualMethod
 
 
 class NGCF(CounterfactualMethod):
-    def __init__(self, model, backend, fi_method):
-        super().__init__(model, backend, change=False)
+    def __init__(self, model, fi_method):
+        super().__init__(model)
         self.fi_method = fi_method
 
     def generate_counterfactual_specific(self, x_orig, desired_target=None, nun_example=None, y_true_orig=None):
@@ -27,7 +27,7 @@ class NGCF(CounterfactualMethod):
             nun_example[starting_point:subarray_length + starting_point],
             x_orig[subarray_length + starting_point:]
         ))
-        pred_probs = self.model.predict(x_cf.reshape(1, -1, 1), verbose=0)
+        pred_probs = self.model_wrapper.predict(x_cf)
         pred_class = np.argmax(pred_probs, axis=1)[0]
 
         while pred_class != desired_target:
@@ -39,7 +39,7 @@ class NGCF(CounterfactualMethod):
                 nun_example[starting_point:subarray_length + starting_point],
                 x_orig[subarray_length + starting_point:]
             ))
-            pred_probs = self.model.predict(x_cf.reshape(1, -1, 1), verbose=0)
+            pred_probs = self.model_wrapper.predict(x_cf)
             pred_class = np.argmax(pred_probs, axis=1)[0]
 
         result = {'cf': np.expand_dims(x_cf, axis=0)}

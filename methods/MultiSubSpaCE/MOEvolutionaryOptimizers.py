@@ -8,7 +8,7 @@ class MOEvolutionaryOptimizer(ABC):
     def __init__(self, fitness_func, prediction_func, population_size, max_iter,
                  init_pct, reinit, init_random_mix_ratio,
                  invalid_penalization,
-                 feature_axis, individual_channel_search):
+                 individual_channel_search):
 
         self.population_size = population_size
 
@@ -19,7 +19,7 @@ class MOEvolutionaryOptimizer(ABC):
         self.max_iter = max_iter
         self.original_init_pct = init_pct
 
-        self.feature_axis = feature_axis
+        self.feature_axis = 2   # Works for tf data ordering
         self.individual_channel_search = individual_channel_search
 
         self.reinit = reinit
@@ -56,12 +56,12 @@ class MOEvolutionaryOptimizer(ABC):
 
         return population
 
-    def init(self, x_orig, nun_example, desired_class, model,
+    def init(self, x_orig, nun_example, desired_class, model_wrapper,
              init_mask=None, outlier_calculator=None, importance_heatmap=None):
         self.x_orig = x_orig
         self.nun_example = nun_example
         self.desired_class = desired_class
-        self.model = model
+        self.model_wrapper = model_wrapper
         self.outlier_calculator = outlier_calculator
         self.importance_heatmap = importance_heatmap
         self.init_pct = copy.deepcopy(self.original_init_pct)
@@ -622,12 +622,12 @@ class IntegratedPruningNSubsequenceEvolutionaryOptimizer(MOEvolutionaryOptimizer
                  change_subseq_mutation_prob=0.05, add_subseq_mutation_prob=0, remove_subseq_mutation_prob=0.05,
                  init_pct=0.4, reinit=True, init_random_mix_ratio=0.5,
                  invalid_penalization=100,
-                 feature_axis=2, individual_channel_search=False):
+                 individual_channel_search=False):
         super().__init__(
             fitness_func, prediction_func, population_size, max_iter,
             init_pct, reinit, init_random_mix_ratio,
             invalid_penalization,
-            feature_axis, individual_channel_search
+            individual_channel_search
         )
         self.change_subseq_mutation_prob = change_subseq_mutation_prob
         self.add_subseq_mutation_prob = add_subseq_mutation_prob

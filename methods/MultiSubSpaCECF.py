@@ -7,7 +7,7 @@ from .counterfactual_common import CounterfactualMethod
 
 
 class MultiSubSpaCECF(CounterfactualMethod):
-    def __init__(self, model, backend, outlier_calculator, fi_method,
+    def __init__(self, model_wrapper, outlier_calculator, fi_method,
                  grouped_channels_iter, individual_channels_iter, pruning_iter,
                  plausibility_objective="ios",
                  population_size=100,
@@ -15,7 +15,7 @@ class MultiSubSpaCECF(CounterfactualMethod):
                  integrated_pruning_mutation_prob=0.05, final_pruning_mutation_prob=0.5,
                  init_pct=0.4, reinit=True, init_random_mix_ratio=0.5,
                  invalid_penalization=100,):
-        super().__init__(model, backend)
+        super().__init__(model_wrapper)
 
         self.outlier_calculator = outlier_calculator
         self.fi_method = fi_method
@@ -38,7 +38,7 @@ class MultiSubSpaCECF(CounterfactualMethod):
                 change_subseq_mutation_prob, add_subseq_mutation_prob, integrated_pruning_mutation_prob,
                 init_pct, reinit, init_random_mix_ratio,
                 invalid_penalization,
-                self.feature_axis, False
+                False
             )
         if individual_channels_iter > 0:
             self.i_channels_optimizer = IntegratedPruningNSubsequenceEvolutionaryOptimizer(
@@ -47,7 +47,7 @@ class MultiSubSpaCECF(CounterfactualMethod):
                 change_subseq_mutation_prob, add_subseq_mutation_prob, integrated_pruning_mutation_prob,
                 init_pct, reinit, init_random_mix_ratio,
                 invalid_penalization,
-                self.feature_axis, True
+                True
             )
 
         if pruning_iter > 0:
@@ -57,13 +57,13 @@ class MultiSubSpaCECF(CounterfactualMethod):
                 0, add_subseq_mutation_prob, final_pruning_mutation_prob,
                 init_pct, reinit, init_random_mix_ratio,
                 invalid_penalization,
-                self.feature_axis, True
+                True
             )
 
     def search_mask(self, subsequence_optimizer, x_orig, nun_example, desired_target, combined_heatmap, init_mask):
         subsequence_optimizer.init(
             x_orig, nun_example, desired_target,
-            self.model,
+            self.model_wrapper,
             init_mask=init_mask,
             outlier_calculator=self.outlier_calculator,
             importance_heatmap=combined_heatmap

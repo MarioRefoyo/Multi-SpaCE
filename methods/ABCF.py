@@ -6,18 +6,14 @@ from .counterfactual_common import CounterfactualMethod
 
 
 class ABCF(CounterfactualMethod):
-    def __init__(self, model, backend, x_train, y_train, window_pct):
-        if backend == 'tf':
-            change = True
-        else:
-            raise "ABCF only supports tf models right now"
+    def __init__(self, model_wrapper, x_train, y_train, window_pct, data_mode="temp_first"):
+        super().__init__(model_wrapper)
 
-        super().__init__(model, backend, change=change)
-
-        if change:
+        # AB-CF works with data input model first
+        self.data_mode = data_mode
+        if self.data_mode == "temp_first":
             self.x_train = np.swapaxes(x_train, 2, 1)
-        else:
-            self.x_train = x_train
+
         self.TS_nums = self.x_train.shape[0]
         self.dim_nums = self.x_train.shape[1]
         self.ts_length = self.x_train.shape[2]
@@ -28,9 +24,9 @@ class ABCF(CounterfactualMethod):
         self.stride = self.window_size
 
     def generate_counterfactual_specific(self, x_orig, desired_target=None, nun_example=None, y_true_orig=None):
-        if self.change:
+        if self.data_mode == "temp_first":
             x_orig = np.swapaxes(x_orig, 1, 0)
-        y_pred_orig_proba = self.predict_function_tf(np.expand_dims(x_orig, axis=0))
+        y_pred_orig_proba = self.model_wrapper.predict(x_orig, input_data_format="torch")
         y_pred_orig = np.argmax(y_pred_orig_proba, axis=1)[0]
 
         subsequences = sliding_window_3d(x_orig, self.window_size, self.stride)
@@ -39,7 +35,7 @@ class ABCF(CounterfactualMethod):
             ((0, 0), (0, 0), (0, self.ts_length - subsequences.shape[2])),
             mode='constant'
         )
-        predict_proba = self.predict_function_tf(padded_subsequences)
+        predict_proba = self.model_wrapper.predict(padded_subsequences, input_data_format="torch")
         entropies = []
         for j in range(len(predict_proba)):
             entro = entropy(predict_proba[j])
@@ -52,7 +48,8 @@ class ABCF(CounterfactualMethod):
         if y_pred_orig != y_true_orig:
             target = y_true_orig
         else:
-            target = target_adapted(self.model, x_orig)
+            target = target_adapted(self.model_wrapper, x_orig)
+        # To Do: Use the same NUN than the rest of the methods??
         idx = native_guide_retrieval(x_orig, target, 'dtw', 1, self.x_train, self.y_train)
 
         nun = self.x_train[idx.item()]
@@ -64,8 +61,7 @@ class ABCF(CounterfactualMethod):
             end = start + self.window_size
             columns_toreplace = list(range(start, end))
             cf[:, columns_toreplace] = nun[:, columns_toreplace]
-            cf = cf.reshape(1, cf.shape[0], cf.shape[1])
-            cf_pred = self.predict_function_tf(cf)
+            cf_pred = self.model_wrapper.predict(cf, input_data_format="torch")
             # if model.predict(np.swapaxes(cf, 2, 1)) == target:
             if np.argmax(cf_pred, axis=1)[0] == target:
                 print("success")
@@ -80,8 +76,8 @@ class ABCF(CounterfactualMethod):
                     print('Method failed')
                     final_cf = cf.copy()
                 else:
-                    cf = cf.reshape(cf.shape[1], cf.shape[2])
                     k = k + 1
 
-        result = {'cf': np.swapaxes(final_cf, 1, 2)}
+        cf = np.swapaxes(np.expand_dims(final_cf, axis=0), 1, 2)
+        result = {'cf': cf}
         return result

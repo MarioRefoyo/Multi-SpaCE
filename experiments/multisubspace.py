@@ -9,16 +9,18 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import tensorflow as tf
+import torch
 from sklearn.metrics import classification_report
 
-from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, store_partial_cfs, \
-    ucr_data_loader, load_parameters_from_json, generate_settings_combinations, get_subsample
+from experiments.experiment_utils import store_partial_cfs, load_parameters_from_json,generate_settings_combinations
 from experiments.results.results_concatenator import concatenate_result_files
-from methods.outlier_calculators import AEOutlierCalculator
 
+from methods.outlier_calculators import AEOutlierCalculator
 from methods.MultiSubSpaCECF import MultiSubSpaCECF
 from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
-from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, NoneFI, TSRFI
+from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, NoneFI
+
+from experiments.experiment_utils import prepare_experiment, load_model
 
 
 """DATASETS = [
@@ -34,11 +36,15 @@ DATASETS = [
     'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', # 'CinCECGTorso',
     'NonInvasiveFatalECGThorax2', 'CBF',
 ]
-DATASETS = ['FordA']
+DATASETS = ['ECG200']
 
-PARAMS_PATH = 'experiments/params_cf/multisubspace_ip_global_fp_mutation.json'
-MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
+PARAMS_PATH = 'experiments/params_cf/multisubspace_final_pytorch.json'
+MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "fcn_pytorch"
+# MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
+# PARAMS_PATH = 'experiments/params_cf/multisubspace_final_pytorch.json'
+# MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'fcn_pytorch'
 OC_EXPERIMENT_NAME = 'ae_basic_train'
+
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
@@ -54,15 +60,22 @@ def get_counterfactual_worker(sample_dict):
     x_orig_samples_worker = sample_dict["x_orig_samples"]
     nun_examples_worker = sample_dict["nun_examples"]
     desired_targets_worker = sample_dict["desired_targets"]
+    n_classes = sample_dict["n_classes"]
+    ts_length = x_orig_samples_worker.shape[1]
+    n_channels = x_orig_samples_worker.shape[2]
 
     # Set seed in thread. ToDo: is it really necessary?
     if params["seed"] is not None:
         np.random.seed(params["seed"])
         tf.random.set_seed(params["seed"])
+        torch.manual_seed(params["seed"])
+        torch.cuda.manual_seed(params["seed"])
         random.seed(params["seed"])
 
     # Get model
-    model_worker = tf.keras.models.load_model(f'experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/model.hdf5')
+    model_folder = f'experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}'
+    model_wrapper = load_model(model_folder, dataset, n_channels, ts_length, n_classes)
+    backend = model_wrapper.backend
 
     # Get outlier calculator
     ae_model = tf.keras.models.load_model(f'./experiments/models/{dataset}/{OC_EXPERIMENT_NAME}/model.hdf5')
@@ -72,16 +85,14 @@ def get_counterfactual_worker(sample_dict):
     if params["init_fi"] == "none":
         fi_method = NoneFI('tf')
     elif params["init_fi"] == "gradcam++":
-        fi_method = GraCAMPlusFI('tf', model_worker)
-    elif (params["init_fi"] == "IG") or (params["init_fi"] == "SG") or (params["init_fi"] == "FO"):
-        fi_method = TSRFI('tf', model_worker, x_orig_samples_worker.shape[1], x_orig_samples_worker.shape[2], params["init_fi"])
+        fi_method = GraCAMPlusFI('tf', model_wrapper)
     else:
         raise ValueError("The provided init_fi is not valid.")
 
     # Instantiate the Counterfactual Explanation method
     grouped_channels_iter, individual_channels_iter, pruning_iter = params["max_iter"]
     cf_explainer = MultiSubSpaCECF(
-        model_worker, 'tf', outlier_calculator_worker, fi_method,
+        model_wrapper, outlier_calculator_worker, fi_method,
         grouped_channels_iter, individual_channels_iter, pruning_iter,
         plausibility_objective=params["plausibility_objective"],
         population_size=params["population_size"],
@@ -109,38 +120,14 @@ def get_counterfactual_worker(sample_dict):
 
 
 def experiment_dataset(dataset, exp_name, params):
-    # Set seed
-    if params["seed"] is not None:
-        np.random.seed(params["seed"])
-        random.seed(params["seed"])
-
-    # Load data
-    scaling = params["scaling"]
-    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), scaling, backend="tf", data_path="./experiments/data")
-    y_train, y_test = label_encoder(y_train, y_test)
-
-    # Get a subset of testing data if specified
-    if (params["subset"]) & (len(y_test) > params["subset_number"]):
-        X_test, y_test, subset_idx = get_subsample(X_test, y_test, params["subset_number"], params["seed"])
-    else:
-        subset_idx = np.arange(len(X_test))
-
-    # Load model
-    model = tf.keras.models.load_model(f'experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/model.hdf5')
-
-    # Predict
-    y_pred_test_logits = model.predict(X_test, verbose=0)
-    y_pred_train_logits = model.predict(X_train, verbose=0)
-    y_pred_test = np.argmax(y_pred_test_logits, axis=1)
-    y_pred_train = np.argmax(y_pred_train_logits, axis=1)
-    # Classification report
-    print(classification_report(y_test, y_pred_test))
+    X_train, y_train, X_test, y_test, subset_idx, n_classes, model_wrapper, y_pred_train, y_pred_test = prepare_experiment(
+        dataset, params, MODEL_TO_EXPLAIN_EXPERIMENT_NAME)
 
     # Get the NUNs
     if params["independent_channels_nun"]:
         nun_finder = IndependentNUNFinder(
             X_train, y_train, y_pred_train, distance='euclidean',
-            from_true_labels=False, backend='tf', n_neighbors=params["n_neighbors"], model=model
+            from_true_labels=False, backend='tf', n_neighbors=params["n_neighbors"], model=model_wrapper
         )
     else:
         nun_finder = GlobalNUNFinder(
@@ -170,6 +157,7 @@ def experiment_dataset(dataset, exp_name, params):
                 "x_orig_samples": x_orig_samples,
                 "nun_examples": nun_examples,
                 "desired_targets": desired_targets,
+                "n_classes": n_classes
             }
             samples.append(sample_dict)
 
