@@ -38,8 +38,8 @@ DATASETS = [
 ]
 DATASETS = ['ECG200']
 
-PARAMS_PATH = 'experiments/params_cf/multisubspace_final.json'
-MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "cls_basic_train"
+PARAMS_PATH = 'experiments/params_cf/multisubspace_final_pytorch.json'
+MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "fcn_pytorch"
 # MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
 # PARAMS_PATH = 'experiments/params_cf/multisubspace_final_pytorch.json'
 # MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'fcn_pytorch'
