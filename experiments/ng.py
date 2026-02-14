@@ -26,12 +26,10 @@ DATASETS = [
     'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso',
     'NonInvasiveFatalECGThorax2', 'CBF',
 ]
-DATASETS = ['ECG200']
 
-# PARAMS_PATH = 'experiments/params_cf/baseline_ng.json'
+PARAMS_PATH = 'experiments/params_cf/baseline_ng.json'
 # MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
-# MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
-PARAMS_PATH = 'experiments/params_cf/baseline_ng_torch.json'
+MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'fcn_pytorch'
 
 MULTIPROCESSING = True

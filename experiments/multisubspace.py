@@ -23,24 +23,22 @@ from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, No
 from experiments.experiment_utils import prepare_experiment, load_model
 
 
-"""DATASETS = [
+DATASETS = [
     'BasicMotions', 'NATOPS', 'UWaveGestureLibrary', 'Cricket',
     'ArticularyWordRecognition', 'Epilepsy',
     'PenDigits',
     'PEMS-SF',
     'RacketSports', 'SelfRegulationSCP1'
-]"""
-DATASETS = [
+]
+"""DATASETS = [
     'ECG200', 'Gunpoint', # 'Coffee',
     'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
     'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', # 'CinCECGTorso',
     'NonInvasiveFatalECGThorax2', 'CBF',
-]
-DATASETS = ['ECG200']
+]"""
 
-PARAMS_PATH = 'experiments/params_cf/multisubspace_final_pytorch.json'
-MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "fcn_pytorch"
-# MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
+PARAMS_PATH = 'experiments/params_cf/multisubspace_final_gpu.json'
+MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
 # PARAMS_PATH = 'experiments/params_cf/multisubspace_final_pytorch.json'
 # MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'fcn_pytorch'
 OC_EXPERIMENT_NAME = 'ae_basic_train'
