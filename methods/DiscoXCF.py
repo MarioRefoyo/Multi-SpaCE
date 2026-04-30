@@ -8,22 +8,22 @@ from .DiscoX.mutils import cal_tags_mps, fast_find_anomalies, idx_to_str, get_sc
 
 
 class DiscoXCF(CounterfactualMethod):
-    def __init__(self, model, backend, X_train, y_train, window_pct=0.1):
-        super().__init__(model, backend, change=False)
+    def __init__(self, model_wrapper, X_train, y_train, window_pct=0.1):
+        super().__init__(model_wrapper)
         self.X_train = X_train
         self.y_train = y_train
         self.window = int(window_pct * X_train.shape[1])
         self.steps = np.concatenate([np.arange(0.01, 0.5, 0.01), np.arange(0.5, 1.01, 0.02)])
 
     @staticmethod
-    def predict(X, model):
+    def predict(X, model_wrapper):
         if len(X.shape) == 2:  # if univariate
             # add a dimension to make it multivariate with one dimension
             X = X.reshape((1, X.shape[0], X.shape[1]))
         elif len(X.shape) == 1:
             X = X.reshape((1, -1, 1))
 
-        y_pred = model.predict(X, verbose=0)
+        y_pred = model_wrapper.predict(X)
         return np.argmax(y_pred, axis=1)
 
     @staticmethod
@@ -217,7 +217,7 @@ class DiscoXCF(CounterfactualMethod):
     def generate_counterfactual_specific(self, x_orig, desired_target=None, nun_example=None):
         x_cf_list = []
 
-        orig_y = self.predict(x_orig, self.model)[0]
+        orig_y = self.predict(x_orig, self.model_wrapper)[0]
         cf_found = False
         for target_c in np.unique(self.y_train):
             if cf_found:
@@ -480,7 +480,7 @@ class DiscoXCF(CounterfactualMethod):
                     X_cf = (1 - w) * x_orig + w * target_ts
                     X_cf = self.minterpolate_short(X_cf, mapped, d_dims, thres=3)
 
-                    y_cf = self.predict(X_cf, self.model)[0]
+                    y_cf = self.predict(X_cf, self.model_wrapper)[0]
 
                     if y_cf == target_c:
                         cf_found = True
@@ -509,7 +509,7 @@ class DiscoXCF(CounterfactualMethod):
                     X_cf = (1 - w) * x_orig + w * target_ts
                     X_cf = self.minterpolate_short(X_cf, mapped, d_dims, thres=3)
 
-                    y_cf = self.predict(X_cf, self.model)[0]
+                    y_cf = self.predict(X_cf, self.model_wrapper)[0]
 
                     if y_cf == target_c:
                         cf_found = True

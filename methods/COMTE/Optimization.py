@@ -18,7 +18,7 @@ from .Optimization_helpers import random_hill_climb
 class BaseExplanation:
     def __init__(
         self,
-        clf,
+        predict_fun,
         timeseries,
         labels,
         silent=True,
@@ -26,7 +26,7 @@ class BaseExplanation:
         dont_stop=False,
         threads=multiprocessing.cpu_count(),
     ):
-        self.clf = clf
+        self.predict_fun = predict_fun
         self.timeseries = timeseries
         self.labels = pd.DataFrame(labels, columns=["label"])
         self.silent = silent
@@ -51,7 +51,7 @@ class BaseExplanation:
         self.per_class_node_indices = {c: [] for c in np.unique(self.labels)}
         input_ = self.timeseries
 
-        preds = np.argmax(self.clf(input_), axis=1)
+        preds = np.argmax(self.predict_fun(input_), axis=1)
         true_positive_node_ids = {c: [] for c in np.unique(self.labels)}
         for pred, (idx, row) in zip(preds, self.labels.iterrows()):
             if row["label"] == pred:
@@ -226,11 +226,11 @@ class BruteForceSearch(BaseExplanation):
         x_test[0][column] = distractor[0][column]
         input_ = x_test.reshape(1, -1, x_test.shape[-1])
 
-        return self.clf(input_)[0][label_idx]
+        return self.predict_fun(input_)[0][label_idx]
 
     def _find_best(self, x_test, distractor, label_idx, channels_to_search):
         input_ = x_test
-        best_case = self.clf(input_)[0][label_idx]
+        best_case = self.predict_fun(input_)[0][label_idx]
         best_column = None
         tuples = []
         for c in channels_to_search:
@@ -278,11 +278,11 @@ class BruteForceSearch(BaseExplanation):
 
     def explain(self, x_test, to_maximize=None, num_features=10):
         input_ = x_test
-        orig_preds = self.clf(input_)
+        orig_preds = self.predict_fun(input_)
         if to_maximize is None:
             to_maximize = np.argsort(orig_preds)[0][-2:-1][0]
 
-        orig_label = np.argmax(self.clf(input_))
+        orig_label = np.argmax(self.predict_fun(input_))
         if orig_label == to_maximize:
             print("Original and Target Label are identical !")
             return None, None
@@ -300,7 +300,7 @@ class BruteForceSearch(BaseExplanation):
             changed_columns = []
             while True:
                 input_ = modified
-                probas = self.clf(input_)
+                probas = self.predict_fun(input_)
                 if np.argmax(probas) == to_maximize:
                     current_best = np.max(probas)
                     if current_best > best_explanation_score:
@@ -336,14 +336,14 @@ class BruteForceSearch(BaseExplanation):
                     explanation.append(best_column)"""
 
         other = modified
-        target = np.argmax(self.clf(other), axis=1)
+        target = np.argmax(self.predict_fun(other), axis=1)
         return other, target
 
 
 class OptimizedSearch(BaseExplanation):
     def __init__(
         self,
-        clf,
+        predict_fun,
         timeseries,
         labels,
         silent,
@@ -355,9 +355,9 @@ class OptimizedSearch(BaseExplanation):
         reg=0.8,
         **kwargs,
     ):
-        super().__init__(clf, timeseries, labels, **kwargs)
+        super().__init__(predict_fun, timeseries, labels, **kwargs)
         self.discrete_state = False
-        self.backup = BruteForceSearch(clf, timeseries, labels, num_distractors=num_distractors, threads=1, **kwargs)
+        self.backup = BruteForceSearch(predict_fun, timeseries, labels, num_distractors=num_distractors, threads=1, **kwargs)
         self.max_attemps = max_attempts
         self.maxiter = maxiter
         self.restarts = restarts
@@ -366,7 +366,7 @@ class OptimizedSearch(BaseExplanation):
     def opt_Discrete(self, to_maximize, x_test, dist, columns, init, num_features=None):
         fitness_fn = LossDiscreteState(
             to_maximize,
-            self.clf,
+            self.predict_fun,
             x_test,
             dist,
             columns,
@@ -397,7 +397,7 @@ class OptimizedSearch(BaseExplanation):
             for c in short_explanation:
                 modified[0][c] = dist[0][c]
             input_ = modified
-            prev_proba = self.clf(input_)[0][to_maximize]
+            prev_proba = self.predict_fun(input_)[0][to_maximize]
             best_col = None
             best_diff = 0
             for c in explanation:
@@ -405,7 +405,7 @@ class OptimizedSearch(BaseExplanation):
 
                 tmp[0][c] = dist[0][c]
                 input_ = tmp
-                cur_proba = self.clf(input_)[0][to_maximize]
+                cur_proba = self.predict_fun(input_)[0][to_maximize]
                 if cur_proba - prev_proba > best_diff:
                     best_col = c
                     best_diff = cur_proba - prev_proba
@@ -419,7 +419,7 @@ class OptimizedSearch(BaseExplanation):
         self, x_test, num_features=None, to_maximize=None
     ) -> Tuple[np.array, int]:
         input_ = x_test
-        orig_preds = self.clf(input_)
+        orig_preds = self.predict_fun(input_)
 
         orig_label = np.argmax(orig_preds)
 
@@ -448,7 +448,7 @@ class OptimizedSearch(BaseExplanation):
             best = distractors[0]"""
         else:
             best, _ = explanation
-        target = np.argmax(self.clf(best), axis=1)
+        target = np.argmax(self.predict_fun(best), axis=1)
 
         return best, target
 
@@ -495,7 +495,7 @@ class OptimizedSearch(BaseExplanation):
                 if c in explanation:
                     modified[0][c] = dist[0][c]
             input_ = modified  # .reshape(1, -1, self.window_size)
-            probas = self.clf(input_)
+            probas = self.predict_fun(input_)
 
             if not self.silent:
                 logging.info("Current probas: %s", probas)

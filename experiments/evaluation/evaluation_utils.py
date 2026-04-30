@@ -261,6 +261,8 @@ def calculate_metrics_for_dataset(dataset, methods, model_to_explain,
     mean_std_df = mean_std_df.reset_index()
     results_df['dataset'] = dataset
 
+    print(f"Common test indexes are {len(common_test_indexes)}: {common_test_indexes}")
+
     return mean_std_df, results_df, method_cfs_dataset, common_test_indexes
 
 

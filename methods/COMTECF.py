@@ -6,19 +6,10 @@ from .counterfactual_common import CounterfactualMethod
 
 
 class COMTECF(CounterfactualMethod):
-    def __init__(self, model, backend, x_train, y_train, number_distractors,
+    def __init__(self, model_wrapper, x_train, y_train, number_distractors,
                  max_attempts=1000, max_iter=1000, restarts=5, reg=0.8, silent=False):
-        if backend == 'tf':
-            change = True
-        else:
-            raise "COMTE only supports tf models right now"
-
-        super().__init__(model, backend, change=change)
-
-        if change:
-            self.x_train = np.swapaxes(x_train, 2, 1)
-        else:
-            self.x_train = x_train
+        super().__init__(model_wrapper)
+        self.x_train = x_train
         self.y_train = y_train
         self.number_distractors = number_distractors
         self.max_attempts = max_attempts
@@ -40,17 +31,13 @@ class COMTECF(CounterfactualMethod):
             restarts=self.restarts,
             reg=self.reg,
         )
-        if self.change:
-            x_orig = np.swapaxes(x_orig, 2, 1)
+
+        try:
             x_cf, predicted_label = opt.explain(x_orig, to_maximize=desired_target)
-            x_cf = np.swapaxes(x_cf, 2, 1)
-        else:
-            try:
-                x_cf, predicted_label = opt.explain(x_orig, to_maximize=desired_target)
-            except AttributeError as msg:
-                print(f'{msg}')
-                print(f'COMTE failed to find a NUN so original instance is returned')
-                x_cf = copy.deepcopy(x_orig)
+        except AttributeError as msg:
+            print(f'{msg}')
+            print(f'COMTE failed to find a NUN so original instance is returned')
+            x_cf = copy.deepcopy(x_orig)
 
         result = {'cf': x_cf}
 

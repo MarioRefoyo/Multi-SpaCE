@@ -20,30 +20,29 @@ from experiments.experiment_utils import prepare_experiment, load_model
 
 
 DATASETS = [
-    'BasicMotions', 'NATOPS', 'UWaveGestureLibrary', 'Cricket',
-    'ArticularyWordRecognition', 'Epilepsy',
+    # 'BasicMotions', 'NATOPS', 'UWaveGestureLibrary', 'Cricket',
+    # 'ArticularyWordRecognition', 'Epilepsy',
     'PenDigits',
-    'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
+    # 'PEMS-SF', 'RacketSports', 'SelfRegulationSCP1'
 ]
 """DATASETS = [
-    'ECG200', 'Gunpoint', 'Coffee',
-    'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
-    'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso',
-    'NonInvasiveFatalECGThorax2', 'CBF',
-]
-DATASETS = ['Coffee', 'CinCECGTorso']"""
-DATASETS = ['ECG200']
+    # 'ECG200', 'Gunpoint', 'Coffee',
+    # 'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA',
+    # 'HandOutlines',
+    # 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso',
+    # 'NonInvasiveFatalECGThorax2', 'CBF',
+]"""
 
 PARAMS_PATH = 'experiments/params_cf/baseline_abcf.json'
-MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
-# MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
+# MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
+MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
 # PARAMS_PATH = 'experiments/params_cf/baseline_abcf_torch.json'
 # MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'fcn_pytorch'
 
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
-POOL_SIZE = 10
+POOL_SIZE = 1
 
 
 def get_counterfactual_worker(sample_dict):
@@ -144,7 +143,7 @@ def experiment_dataset(dataset, exp_name, params):
 
 if __name__ == "__main__":
     # Load parameters
-    exp_name = "abcf"
+    exp_name = "abcf_gpu"
     all_params = load_parameters_from_json(PARAMS_PATH)
     for dataset in DATASETS:
         if not os.path.isdir(f"./experiments/results/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/{exp_name}"):

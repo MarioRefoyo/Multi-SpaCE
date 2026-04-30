@@ -84,7 +84,7 @@ def nun_retrieval(query, predicted_label, distance, n_neighbors, X_train, y_trai
     return distances, index, label
 
 
-def prepare_experiment(dataset, params, model_to_explain):
+def prepare_experiment(dataset, params, model_to_explain, additional_subsample_subset=None):
     # Set seed
     if params["seed"] is not None:
         np.random.seed(params["seed"])
@@ -101,18 +101,23 @@ def prepare_experiment(dataset, params, model_to_explain):
     n_classes = len(classes)
 
     # Get a subset of testing data if specified
+    X_test_copy = X_test.copy()
     if (params["subset"]) & (len(y_test) > params["subset_number"]):
         X_test, y_test, subset_idx = get_subsample(X_test, y_test, params["subset_number"], params["seed"])
     else:
         subset_idx = np.arange(len(X_test))
+
+    if "additional_subsample_subset" in params:
+        X_test, y_test, sub_subset_index = get_subsample(X_test, y_test, params["additional_subsample_subset"], params["seed"])
+        subset_idx = subset_idx[sub_subset_index]
 
     # Get model
     model_folder = f'experiments/models/{dataset}/{model_to_explain}'
     model_wrapper = load_model(model_folder, dataset, n_channels, ts_length, n_classes)
 
     # Predict
-    y_pred_test_logits = model_wrapper.predict(X_test)
-    y_pred_train_logits = model_wrapper.predict(X_train)
+    y_pred_test_logits = model_wrapper.predict(X_test, batch_size=16)
+    y_pred_train_logits = model_wrapper.predict(X_train, batch_size=16)
     y_pred_test = np.argmax(y_pred_test_logits, axis=1)
     y_pred_train = np.argmax(y_pred_train_logits, axis=1)
     # Classification report
@@ -124,7 +129,7 @@ def prepare_experiment(dataset, params, model_to_explain):
 def load_model(model_folder, dataset, n_channels, ts_length, n_classes):
     if os.path.exists(f'{model_folder}/model.hdf5'):
         backend = "tf"
-        model = tf.keras.models.load_model(f'{model_folder}/model.hdf5')
+        model = tf.keras.models.load_model(f'{model_folder}/model.hdf5', compile=False)
 
     elif os.path.exists(f'{model_folder}/model_weights.pth'):
         backend = "torch"
@@ -154,10 +159,24 @@ class ModelWrapper:
             self.model.eval()
         elif self.backend == "tf":
             self.framework = tf
+            self._infer = None
         else:
             raise ValueError("Unsupported backend: choose 'torch' or 'tf'.")
 
-    def predict(self, x: np.ndarray, input_data_format="tf") -> np.ndarray:
+    def _build_infer_tf(self, x):
+        # flexible: unknown batch, time, channels
+        spec = tf.TensorSpec(shape=[None, None, None], dtype=tf.float32)
+
+        @tf.function(input_signature=[spec])
+        def infer(z):
+            # tf.print("infer z shape =", tf.shape(z))
+            return self.model(z, training=False)
+        # cache it
+        self._infer = infer
+        # warm-up with the first observed input (builds graph/kernels)
+        _ = self._infer(tf.convert_to_tensor(x, dtype=tf.float32))
+
+    def predict(self, x: np.ndarray, input_data_format="tf", batch_size=None) -> np.ndarray:
         assert input_data_format in ["tf", "torch"]
 
         # Append
@@ -178,5 +197,10 @@ class ModelWrapper:
                 # Swap axes: from (B, F, T) to (B, T, F)
                 x = np.transpose(x, (0, 2, 1))
             x_tensor = tf.convert_to_tensor(x, dtype=tf.float32)
-            output = self.model.predict(x_tensor, verbose=0)
+            if self._infer is None:
+                self._build_infer_tf(x_tensor)
+            if batch_size is not None:
+                output = self.model.predict(x_tensor, batch_size=batch_size, verbose=0)
+            else:
+                output = self._infer(x_tensor).numpy()
             return output

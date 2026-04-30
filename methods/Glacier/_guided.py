@@ -138,7 +138,7 @@ class ModifiedLatentCF:
         loss = tf.zeros(shape=())
         decoded = self.decoder_(z_search) if self.autoencoder is not None else z_search
         target_label = tf.cast(target_label, dtype=tf.int32)
-        pred = self.model_(decoded)[:, target_label]
+        pred = self.model_.predict(decoded)[:, target_label]
 
         pred_margin_loss = self.pred_margin_mse(pred)
         loss += self.pred_margin_weight * pred_margin_loss
@@ -229,9 +229,9 @@ class ModifiedLatentCF:
             )
 
         if self.autoencoder is not None:
-            pred = self.model_(self.decoder_(z))
+            pred = self.model_.predict(self.decoder_(z))
         else:
-            pred = self.model_(z)
+            pred = self.model_.predict(z)
 
         # # uncomment for debug
         # print(
@@ -259,9 +259,9 @@ class ModifiedLatentCF:
             it += 1
 
             if self.autoencoder is not None:
-                pred = self.model_(self.decoder_(z))
+                pred = self.model_.predict(self.decoder_(z))
             else:
-                pred = self.model_(z)
+                pred = self.model_.predict(z)
 
         # # uncomment for debug
         # print(

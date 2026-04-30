@@ -9,6 +9,21 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import tensorflow as tf
+print(tf.__version__)
+gpus = tf.config.list_physical_devices('GPU')
+tf.config.experimental.set_memory_growth(gpus[0], True)
+print(tf.config.experimental.get_memory_growth(gpus[0]))
+
+"""if gpus:
+    try:
+        # Set visible devices to an empty list
+        tf.config.set_visible_devices([], 'GPU')
+        logical_gpus = tf.config.list_logical_devices('GPU')
+        print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+    except RuntimeError as e:
+        # Visible devices must be set before GPUs have been initialized
+        print(e)"""
+
 import torch
 from sklearn.metrics import classification_report
 
@@ -23,19 +38,19 @@ from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, No
 from experiments.experiment_utils import prepare_experiment, load_model
 
 
-DATASETS = [
+"""DATASETS = [
     'BasicMotions', 'NATOPS', 'UWaveGestureLibrary', 'Cricket',
     'ArticularyWordRecognition', 'Epilepsy',
     'PenDigits',
     'PEMS-SF',
     'RacketSports', 'SelfRegulationSCP1'
-]
-"""DATASETS = [
-    'ECG200', 'Gunpoint', # 'Coffee',
-    'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
-    'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', # 'CinCECGTorso',
-    'NonInvasiveFatalECGThorax2', 'CBF',
 ]"""
+DATASETS = [
+    'ECG200', 'Gunpoint', 'Coffee',
+    'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
+    'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso',
+    'NonInvasiveFatalECGThorax2', 'CBF',
+]
 
 PARAMS_PATH = 'experiments/params_cf/multisubspace_final_gpu.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
@@ -46,7 +61,7 @@ OC_EXPERIMENT_NAME = 'ae_basic_train'
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
-POOL_SIZE = 10
+POOL_SIZE = 1
 
 
 def get_counterfactual_worker(sample_dict):
@@ -76,7 +91,7 @@ def get_counterfactual_worker(sample_dict):
     backend = model_wrapper.backend
 
     # Get outlier calculator
-    ae_model = tf.keras.models.load_model(f'./experiments/models/{dataset}/{OC_EXPERIMENT_NAME}/model.hdf5')
+    ae_model = tf.keras.models.load_model(f'./experiments/models/{dataset}/{OC_EXPERIMENT_NAME}/model.hdf5', compile=False)
     outlier_calculator_worker = AEOutlierCalculator(ae_model, X_train)
 
     # Get FI method for initialization
@@ -118,14 +133,14 @@ def get_counterfactual_worker(sample_dict):
 
 
 def experiment_dataset(dataset, exp_name, params):
-    X_train, y_train, X_test, y_test, subset_idx, n_classes, model_wrapper, y_pred_train, y_pred_test = prepare_experiment(
+    X_train, y_train, X_test, y_test, subset_idx, n_classes, _, y_pred_train, y_pred_test = prepare_experiment(
         dataset, params, MODEL_TO_EXPLAIN_EXPERIMENT_NAME)
 
     # Get the NUNs
     if params["independent_channels_nun"]:
         nun_finder = IndependentNUNFinder(
             X_train, y_train, y_pred_train, distance='euclidean',
-            from_true_labels=False, backend='tf', n_neighbors=params["n_neighbors"], model=model_wrapper
+            from_true_labels=False, backend='tf', n_neighbors=params["n_neighbors"],
         )
     else:
         nun_finder = GlobalNUNFinder(

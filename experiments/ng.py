@@ -21,21 +21,23 @@ from experiments.experiment_utils import prepare_experiment, load_model
 
 
 DATASETS = [
-    'ECG200', 'Gunpoint', 'Coffee',
-    'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
-    'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso',
-    'NonInvasiveFatalECGThorax2', 'CBF',
+    # 'ECG200', 'Gunpoint', 'Coffee',
+    # 'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA',
+    # 'HandOutlines',
+    # 'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000',
+    # 'CinCECGTorso',
+    # 'NonInvasiveFatalECGThorax2', 'CBF',
 ]
 
+ADDITIONAL_SUBSAMPLE_SUBSET = 20
 PARAMS_PATH = 'experiments/params_cf/baseline_ng.json'
 # MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'cls_basic_train'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
-MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'fcn_pytorch'
 
 MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
-POOL_SIZE = 10
+POOL_SIZE = 1
 
 
 def get_counterfactual_worker(sample_dict):
@@ -140,12 +142,16 @@ def experiment_dataset(dataset, exp_name, params):
 
 if __name__ == "__main__":
     # Load parameters
-    exp_name = "ng"
+    exp_name = "ng_gpu"
     all_params = load_parameters_from_json(PARAMS_PATH)
     for dataset in DATASETS:
         if not os.path.isdir(f"./experiments/results/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/{exp_name}"):
             os.makedirs(f"./experiments/results/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/{exp_name}")
         print(f'Starting experiment for dataset {dataset}...')
+
+        if dataset in ["HandOutlines"]:
+            all_params["additional_subsample_subset"] = ADDITIONAL_SUBSAMPLE_SUBSET
+
         experiment_dataset(
             dataset,
             exp_name,

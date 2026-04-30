@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import numpy as np
+import tensorflow as tf
 from sklearn.metrics import silhouette_samples
 
 
@@ -32,6 +33,11 @@ class AEOutlierCalculator(OutlierCalculator):
     def __init__(self, model, calibration_data):
         super().__init__(model, calibration_data)
 
+        @tf.function(input_signature=[tf.TensorSpec(shape=[None, None, None], dtype=tf.float32)])
+        def infer(x):
+            return self.model(x, training=False)
+        self._infer = infer
+
         # Calibrate to get outlier score as a number between 0 and 1
         calibration_scores = self._get_raw_outlier_scores(calibration_data)
         self.min_score = min(0, calibration_scores.min())
@@ -39,7 +45,7 @@ class AEOutlierCalculator(OutlierCalculator):
 
     def _get_raw_outlier_scores(self, data):
         data = data.reshape(-1, self.length, self.n_channels)
-        data_reconstruction = self.model.predict(data, verbose=0)
+        data_reconstruction = self._infer(data)
         reconstruction_errors = np.mean(np.abs(data - data_reconstruction), axis=(1, 2))
         return reconstruction_errors
 

@@ -7,8 +7,8 @@ from .counterfactual_common import CounterfactualMethod
 
 
 class GlacierCF(CounterfactualMethod):
-    def __init__(self, model, backend, x_train, y_train, ae_model, w_value, tau_value, lr_list, w_type, seed):
-        super().__init__(model, backend, change=False)
+    def __init__(self, model_wrapper, x_train, y_train, ae_model, w_value, tau_value, lr_list, w_type, seed):
+        super().__init__(model_wrapper)
         self.x_train = x_train
         self.y_train = y_train
         self.ae_model = ae_model
@@ -26,7 +26,7 @@ class GlacierCF(CounterfactualMethod):
             step_weights = get_global_weights(
                 x_train,
                 y_train,
-                self.model,
+                self.model_wrapper,
                 random_state=self.seed,
             )
 
@@ -44,12 +44,12 @@ class GlacierCF(CounterfactualMethod):
 
     def generate_counterfactual_specific(self, x_orig, desired_target=None, nun_example=None):
         # Get pred labels
-        pred_logits = self.predict_function_tf(x_orig)
+        pred_logits = self.predict_function(x_orig)
         pred_labels = np.argmax(pred_logits, axis=1)
 
         # Here x_orig and desired target are a list of inputs, not just one. ToDo: adapt the method to work as expected
         best_lr, best_cf_model, best_cf_samples, _ = find_best_lr(
-            self.model,
+            self.model_wrapper,
             X_samples=x_orig,
             pred_labels=pred_labels,
             autoencoder=self.ae_model,
