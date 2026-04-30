@@ -1,0 +1,121 @@
+[
+    {
+        "window_size": 4,
+        "stride": 4,
+        "dilation": 1,
+        "word_length": 2,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 4,
+        "stride": 4,
+        "dilation": 1,
+        "word_length": 4,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 8,
+        "stride": 8,
+        "dilation": 1,
+        "word_length": 2,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 8,
+        "stride": 8,
+        "dilation": 1,
+        "word_length": 4,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 8,
+        "stride": 8,
+        "dilation": 1,
+        "word_length": 8,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 16,
+        "stride": 16,
+        "dilation": 1,
+        "word_length": 2,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 16,
+        "stride": 16,
+        "dilation": 1,
+        "word_length": 4,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 16,
+        "stride": 16,
+        "dilation": 1,
+        "word_length": 8,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 32,
+        "stride": 32,
+        "dilation": 1,
+        "word_length": 2,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 32,
+        "stride": 32,
+        "dilation": 1,
+        "word_length": 4,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 32,
+        "stride": 32,
+        "dilation": 1,
+        "word_length": 8,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 64,
+        "stride": 64,
+        "dilation": 1,
+        "word_length": 2,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 64,
+        "stride": 64,
+        "dilation": 1,
+        "word_length": 4,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 64,
+        "stride": 64,
+        "dilation": 1,
+        "word_length": 8,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 128,
+        "stride": 128,
+        "dilation": 1,
+        "word_length": 2,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 128,
+        "stride": 128,
+        "dilation": 1,
+        "word_length": 4,
+        "alphabet_size": 3
+    },
+    {
+        "window_size": 128,
+        "stride": 128,
+        "dilation": 1,
+        "word_length": 8,
+        "alphabet_size": 3
+    }
+]

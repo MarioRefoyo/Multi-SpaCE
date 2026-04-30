@@ -86,7 +86,10 @@ def load_dataset_for_eval(dataset, model_to_explain, osc_names, scaling="none"):
     outlier_calculators = {}
     for osc_name, osc_exp_names in osc_names.items():
         if osc_name == "AE":
-            ae_model = keras.models.load_model(f'./experiments/models/{dataset}/{osc_exp_names}/model.hdf5')
+            ae_model = keras.models.load_model(
+                f'./experiments/models/{dataset}/{osc_exp_names}/model.hdf5',
+                compile=False,
+            )
             outlier_calculators[osc_name] = AEOutlierCalculator(ae_model, X_train)
         elif osc_name == "IF":
             with open(f'./experiments/models/{dataset}/{osc_exp_names}/model.pickle', 'rb') as f:

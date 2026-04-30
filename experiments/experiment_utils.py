@@ -9,11 +9,9 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import classification_report
 from tslearn.neighbors import KNeighborsTimeSeries
-import torch
 import tensorflow as tf
 
 from experiments.data_utils import local_data_loader, ucr_data_loader, label_encoder
-from experiments.models.pytorch_utils import model_selector
 
 
 def get_subsample(X_test, y_test, n_instances, seed):
@@ -132,6 +130,9 @@ def load_model(model_folder, dataset, n_channels, ts_length, n_classes):
         model = tf.keras.models.load_model(f'{model_folder}/model.hdf5', compile=False)
 
     elif os.path.exists(f'{model_folder}/model_weights.pth'):
+        import torch
+        from experiments.models.pytorch_utils import model_selector
+
         backend = "torch"
         # Load train params
         with open(f"{model_folder}/train_params.json") as f:
@@ -153,6 +154,8 @@ class ModelWrapper:
 
         # Prepare for backend
         if self.backend == "torch":
+            import torch
+
             self.framework = torch
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             self.model.to(self.device)
@@ -183,6 +186,8 @@ class ModelWrapper:
         if len(x.shape) == 2:
             x = np.expand_dims(x, axis=0)
         if self.backend == "torch":
+            import torch
+
             if input_data_format == "tf":
                 # Swap axes: from (B, T, F) to (B, F, T)
                 x = np.transpose(x, (0, 2, 1))

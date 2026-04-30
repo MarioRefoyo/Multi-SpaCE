@@ -10,4 +10,11 @@ experiments/models/*/
 !experiments/models/train_lof_model.py
 !experiments/models/train_classification_model.py
 !experiments/models/utils.py
-
+.conda_envs/
+.conda_pkgs/
+.pip_cache/
+.tmp/
+env_backups/
+experiments/models/models.zip
+lightning_logs/
+*.ckpt
