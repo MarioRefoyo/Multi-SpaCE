@@ -1,0 +1,11 @@
+{
+  "seed": 24,
+  "subset": true,
+  "subset_number": 100,
+
+  "scaling": "none",
+  "transformer": "authentic_opposing_information",
+  "epochs": 500,
+  "verbose": 0
+}
+

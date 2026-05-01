@@ -28,7 +28,7 @@
     "max_borf_changes": 20,
     "select_top_k": 5,
     "C": 0.0,
-    "n_restarts": 5,
+    "n_restarts": 1,
     "returns_meta": true
   }
 }
