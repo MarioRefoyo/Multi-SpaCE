@@ -31,11 +31,11 @@ DATASETS = [
     'NonInvasiveFatalECGThorax2', 'CBF',
 ]
 DATASETS = [
-    # 'BasicMotions',
-    'NATOPS', 'UWaveGestureLibrary',
+    'BasicMotions',
+    # 'NATOPS', 'UWaveGestureLibrary',
     # 'Cricket',
-    'ArticularyWordRecognition', 'Epilepsy',
-    'PenDigits',
+    # 'ArticularyWordRecognition', 'Epilepsy',
+    # 'PenDigits',
     # 'PEMS-SF',
     'RacketSports', 'SelfRegulationSCP1'
 ]

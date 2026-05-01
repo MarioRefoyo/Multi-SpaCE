@@ -131,6 +131,55 @@ def load_dataset_for_eval(dataset, model_to_explain, osc_names, scaling="none"):
     return data_tuple, y_pred_test, model_wrapper, outlier_calculators, possible_nuns, desired_classes
 
 
+def apply_quantile_penalization(results_df, penalization_quantile):
+    if not 0 <= penalization_quantile <= 1:
+        raise ValueError("penalization_quantile must be between 0 and 1.")
+
+    metric_columns = [
+        column for column in results_df.columns
+        if column not in {
+            "ii", "valid", "nuns_valid", "times", "method", "best cf index", "order", "dataset"
+        }
+    ]
+
+    penalized_results_df = results_df.copy()
+    for column in metric_columns:
+        if penalized_results_df[column].isna().any():
+            quantile_value = penalized_results_df[column].quantile(penalization_quantile)
+            if not pd.isna(quantile_value):
+                penalized_results_df[column] = penalized_results_df[column].fillna(quantile_value)
+
+    return penalized_results_df
+
+
+def get_penalization_quantiles(penalization_quantile):
+    if np.isscalar(penalization_quantile):
+        quantiles = [float(penalization_quantile)]
+    else:
+        quantiles = [float(quantile) for quantile in penalization_quantile]
+
+    for quantile in quantiles:
+        if not 0 <= quantile <= 1:
+            raise ValueError("penalization_quantile must be between 0 and 1.")
+
+    return quantiles
+
+
+def build_dataset_metrics_output(results_df, dataset, method_cfs_dataset, common_test_indexes):
+    means_df = results_df.groupby('method').mean()
+    means_df = means_df.sort_values('order').drop('order', axis=1)
+    stds_df = results_df.groupby('method').std()
+    stds_df = stds_df.drop('order', axis=1)
+    stds_df = stds_df.reindex(means_df.index)
+    mean_std_df = means_df.round(2).astype(str) + " ± " + stds_df.round(2).astype(str)
+    mean_std_df = mean_std_df.reset_index()
+
+    results_df = results_df.copy()
+    results_df['dataset'] = dataset
+
+    return mean_std_df, results_df, method_cfs_dataset, common_test_indexes
+
+
 def process_method_dir(args):
     dataset, model_to_explain, method_dir_name, methods, model_wrapper, outlier_calculators, X_test, original_classes, possible_nuns, mo_weights, order = args
     results_df = pd.DataFrame()
@@ -174,7 +223,7 @@ def process_method_dir(args):
 
 def calculate_metrics_for_dataset_mp(dataset, methods, model_to_explain,
                                      data_tuple, original_classes, model_wrapper, outlier_calculators, possible_nuns,
-                                     mo_weights=None):
+                                     mo_weights=None, penalize_invalid=False, penalization_quantile=0.95):
     X_train, y_train, X_test, y_test = data_tuple
 
     cf_solution_dirs = [fname for fname in os.listdir(f'./experiments/results/{dataset}/{model_to_explain}') if
@@ -205,22 +254,32 @@ def calculate_metrics_for_dataset_mp(dataset, methods, model_to_explain,
         common_test_indexes = list(set(test_indexes).intersection(common_test_indexes))
         common_test_indexes.sort()
 
-    # Calculate results table for the dataset
-    means_df = results_df.groupby('method').mean()
-    means_df = means_df.sort_values('order').drop('order', axis=1)
-    stds_df = results_df.groupby('method').std()
-    stds_df = stds_df.drop('order', axis=1)
-    stds_df = stds_df.reindex(means_df.index)
-    mean_std_df = means_df.round(2).astype(str) + " ± " + stds_df.round(2).astype(str)
-    mean_std_df = mean_std_df.reset_index()
-    results_df['dataset'] = dataset
+    if penalize_invalid:
+        quantiles = get_penalization_quantiles(penalization_quantile)
+        return {
+            quantile: {
+                "mean_std_df": mean_std_df,
+                "results_df": penalized_results_df,
+                "method_cfs_dataset": method_cfs_dataset,
+                "common_test_indexes": common_test_indexes,
+            }
+            for quantile in quantiles
+            for mean_std_df, penalized_results_df, _, _ in [
+                build_dataset_metrics_output(
+                    apply_quantile_penalization(results_df, quantile),
+                    dataset,
+                    method_cfs_dataset,
+                    common_test_indexes,
+                )
+            ]
+        }
 
-    return mean_std_df, results_df, method_cfs_dataset, common_test_indexes
+    return build_dataset_metrics_output(results_df, dataset, method_cfs_dataset, common_test_indexes)
 
 
 def calculate_metrics_for_dataset(dataset, methods, model_to_explain,
                                   data_tuple, original_classes, model, outlier_calculators, possible_nuns,
-                                  mo_weights=None):
+                                  mo_weights=None, penalize_invalid=False, penalization_quantile=0.95):
     X_train, y_train, X_test, y_test = data_tuple
 
     results_df = pd.DataFrame()
@@ -260,19 +319,29 @@ def calculate_metrics_for_dataset(dataset, methods, model_to_explain,
         common_test_indexes = list(set(method_test_indexes).intersection(common_test_indexes))
         common_test_indexes.sort()
 
-    # Calculate results table for the dataset
-    means_df = results_df.groupby('method').mean()
-    means_df = means_df.sort_values('order').drop('order', axis=1)
-    stds_df = results_df.groupby('method').std()
-    stds_df = stds_df.drop('order', axis=1)
-    stds_df = stds_df.reindex(means_df.index)
-    mean_std_df = means_df.round(2).astype(str) + " ± " + stds_df.round(2).astype(str)
-    mean_std_df = mean_std_df.reset_index()
-    results_df['dataset'] = dataset
+    if penalize_invalid:
+        quantiles = get_penalization_quantiles(penalization_quantile)
+        return {
+            quantile: {
+                "mean_std_df": mean_std_df,
+                "results_df": penalized_results_df,
+                "method_cfs_dataset": method_cfs_dataset,
+                "common_test_indexes": common_test_indexes,
+            }
+            for quantile in quantiles
+            for mean_std_df, penalized_results_df, _, _ in [
+                build_dataset_metrics_output(
+                    apply_quantile_penalization(results_df, quantile),
+                    dataset,
+                    method_cfs_dataset,
+                    common_test_indexes,
+                )
+            ]
+        }
 
     print(f"Common test indexes are {len(common_test_indexes)}: {common_test_indexes}")
 
-    return mean_std_df, results_df, method_cfs_dataset, common_test_indexes
+    return build_dataset_metrics_output(results_df, dataset, method_cfs_dataset, common_test_indexes)
 
 
 def get_method_objectives(model, outlier_calculator, X_test, nuns, solutions_in, original_classes):

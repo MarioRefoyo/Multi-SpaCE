@@ -52,6 +52,7 @@ class MASCOTSCF(CounterfactualMethod):
         restore_build=False,
         save_build=False,
         force_rebuild=False,
+        warmup_numba=True,
     ):
         super().__init__(model_wrapper)
         self.seed = seed
@@ -141,6 +142,9 @@ class MASCOTSCF(CounterfactualMethod):
         if build_args:
             raise ValueError(f"Unsupported MASCOTS build args: {sorted(build_args)}")
 
+        if warmup_numba:
+            self._warmup_runtime(X_borf)
+
     def _save_build(self, path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         payload = {
@@ -167,6 +171,21 @@ class MASCOTSCF(CounterfactualMethod):
         # cached surrogate/background without retraining BoRF or the surrogate.
         self.explainer.attribution_method.build()
         return payload.get("build_results", {})
+
+    def _warmup_runtime(self, X_borf):
+        if len(X_borf) == 0:
+            return
+
+        warmup_sample = np.ascontiguousarray(X_borf[:1])
+        print("[MASCOTS] Warming up prediction and BoRF kernels...", flush=True)
+
+        try:
+            # Warm the backend model path on a single sample.
+            self._predict_proba_borf(warmup_sample)
+            # Warm the BoRF/Numba transform path for the exact input rank used later.
+            self.explainer.borf.transform(warmup_sample)
+        except Exception as exc:
+            print(f"[MASCOTS] Warmup skipped: {exc}", flush=True)
 
     def _to_borf_batch(self, X):
         X = np.asarray(X, dtype=np.float64)
