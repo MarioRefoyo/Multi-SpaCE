@@ -375,32 +375,69 @@ class BorfExplainer:
 
         n_feat = importance.shape[0]
 
-        imp_pairwise = (
-            importance.reshape(-1, 1) - importance.reshape(1, -1)
-        ).reshape(-1)
-        imp_pairwise[imp_pairwise < 0] = 0  # discard negative
-        max_imp = imp_pairwise.max()
-        if max_imp > 0:
-            imp_pairwise /= max_imp  # normalize to [0, 1]
-
-        penalty = C * np.array(
-            [
-                [self._word_diff_measure(i, j) for i in range(n_feat)]
-                for j in range(n_feat)
-            ]
-        ).reshape(-1)
-        imp_sorted = np.argsort(-imp_pairwise + penalty)
-        imp_sorted = imp_sorted[
-            imp_sorted % importance.shape[0] != 0
-        ]  # do not change to itself when C is too high
-
-        idx_pairs = [
-            (el // n_feat, el % n_feat) for el in imp_sorted
-        ]  # TODO: reimplement penalty as matrix to be added and sorted
-
         existing_shapes_idx = np.arange(X_transformed.shape[1])[
             np.ravel((X_transformed[0, :] > 0).toarray())
         ]
+        existing_shapes_idx_set = set(existing_shapes_idx.tolist())
+
+        max_imp = float(importance.max() - importance.min())
+
+        compatibility_groups_new: dict[tuple[int, ...], list[int]] = {}
+        compatibility_groups_old: dict[tuple[int, ...], list[int]] = {}
+
+        for idx_feat in range(n_feat):
+            if self._check_if_word_compatible(idx_feat):
+                key = tuple(
+                    self.mapper_info[idx_feat][constraint_name]
+                    for constraint_name in self.constraint_names
+                )
+                compatibility_groups_new.setdefault(key, []).append(idx_feat)
+
+            if idx_feat in existing_shapes_idx_set:
+                key = tuple(
+                    self.mapper_info[idx_feat][constraint_name]
+                    for constraint_name in self.constraint_names
+                )
+                compatibility_groups_old.setdefault(key, []).append(idx_feat)
+
+        pair_scores = []
+        pair_flat_idx = []
+        idx_pairs = []
+
+        # Preserve the original score exactly, but only for feasible pairs.
+        for key, new_indices in compatibility_groups_new.items():
+            old_indices = compatibility_groups_old.get(key)
+            if old_indices is None:
+                continue
+
+            for new_idx in new_indices:
+                new_importance = importance[new_idx]
+                for old_idx in old_indices:
+                    flat_idx = new_idx * n_feat + old_idx
+                    if flat_idx % n_feat == 0:
+                        continue
+
+                    pairwise_gain = new_importance - importance[old_idx]
+                    if pairwise_gain < 0:
+                        pairwise_gain = 0.0
+                    if max_imp > 0:
+                        pairwise_gain /= max_imp
+
+                    score = -pairwise_gain + C * self._word_diff_measure(
+                        new_idx, old_idx
+                    )
+                    pair_scores.append(score)
+                    pair_flat_idx.append(flat_idx)
+                    idx_pairs.append((new_idx, old_idx))
+
+        if pair_scores:
+            pair_scores_arr = np.asarray(pair_scores, dtype=np.float64)
+            pair_flat_idx_arr = np.asarray(pair_flat_idx, dtype=np.int64)
+            # Match the original flattened pair enumeration on equal scores.
+            imp_sorted = np.lexsort((pair_flat_idx_arr, pair_scores_arr))
+            idx_pairs = [idx_pairs[i] for i in imp_sorted]
+        else:
+            idx_pairs = []
 
         # if np.all(importance <= 0):
         #     return X_org, {"skipped": "no feasilble pairs"}

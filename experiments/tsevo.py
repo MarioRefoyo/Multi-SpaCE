@@ -17,6 +17,18 @@ from experiments.results.results_concatenator import concatenate_result_files
 from methods.TSEvoCF import TSEvoCF
 
 
+def configure_tensorflow_memory_growth():
+    gpus = tf.config.list_physical_devices('GPU')
+    for gpu in gpus:
+        try:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        except RuntimeError:
+            pass
+
+
+configure_tensorflow_memory_growth()
+
+
 """DATASETS = [
     'BasicMotions', 'NATOPS', 'UWaveGestureLibrary', 'Cricket',
     'ArticularyWordRecognition', 'Epilepsy',
@@ -56,6 +68,8 @@ def get_counterfactual_worker(sample_dict):
         np.random.seed(params["seed"])
         tf.random.set_seed(params["seed"])
         random.seed(params["seed"])
+
+    configure_tensorflow_memory_growth()
 
     model_folder = f"experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}"
     model_wrapper = load_model(model_folder, dataset, n_channels, ts_length, n_classes)

@@ -9,7 +9,6 @@ import methods.TSEvo.EvoUtils as EvoUtils
 from methods.TSEvo.EvoUtils import (
     create_logbook,
     create_mstats,
-    eval,
     evaluate_pop,
     pareto_eq,
     recombine,
@@ -104,8 +103,6 @@ class EvolutionaryOptimization:
             "population", tools.initRepeat, list, self.toolbox.individual
         )
         self.toolbox.register("select", tools.selNSGA2)
-        self.toolbox.register("evaluate", eval, mop=self.mop, return_values_of=["F"])
-        self.toolbox.decorate("evaluate", tools.DeltaPenality(self.mop.feasible, 1.0))
         self.toolbox.register("mate", recombine)
         self.toolbox.register(
             "mutate", getattr(EvoUtils, transformer), reference_set=reference_set
@@ -122,7 +119,7 @@ class EvolutionaryOptimization:
         hof = tools.ParetoFront(similar=pareto_eq)
         best = tools.HallOfFame(1, similar=pareto_eq)
 
-        pop = evaluate_pop(pop, self.toolbox)
+        pop = evaluate_pop(pop, self.mop)
         pop = self.toolbox.select(pop, self.MU)
 
         rf = [1.0, 1.0, 1.0]
@@ -143,7 +140,7 @@ class EvolutionaryOptimization:
                 offspring, self.toolbox, cxpb=self.CXPB, mutpb=self.MUTPB
             )
 
-            offspring = evaluate_pop(offspring, self.toolbox)
+            offspring = evaluate_pop(offspring, self.mop)
             pop = self.toolbox.select(offspring + pop, self.MU)
 
             if log:
@@ -192,4 +189,3 @@ class EvolutionaryOptimization:
             return best, logbook, window, mutation
 
         return best, best[0].output
-

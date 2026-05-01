@@ -19,12 +19,12 @@ from methods.DiscoXCF import DiscoXCF
 
 
 DATASETS = [
-    # "BasicMotions", "NATOPS", "UWaveGestureLibrary",
-    # 'ArticularyWordRecognition', # 'Cricket',
-    # 'Epilepsy',
-    'PenDigits',
+    # 'BasicMotions', 'NATOPS', 'UWaveGestureLibrary',
+    # 'Cricket',
+    # 'ArticularyWordRecognition',
+    'Epilepsy', # 'PenDigits',
     # 'PEMS-SF',
-    # 'RacketSports', 'SelfRegulationSCP1'
+    'RacketSports', 'SelfRegulationSCP1'
 ]
 """DATASETS = [
     # 'ECG200',
@@ -37,7 +37,7 @@ DATASETS = [
 ]"""
 
 ADDITIONAL_SUBSAMPLE_SUBSET = 20
-PARAMS_PATH = 'experiments/params_cf/baseline_discox_longer_window.json'
+PARAMS_PATH = 'experiments/params_cf/baseline_discox.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
 MULTIPROCESSING = True
 I_START = 0
@@ -159,7 +159,7 @@ if __name__ == "__main__":
             os.makedirs(f"./experiments/results/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/{exp_name}")
         print(f'Starting experiment for dataset {dataset}...')
 
-        if dataset in ["PEMS-SF", "Cricket", "HandOutlines", "ArticularyWordRecognition"]:
+        if dataset in ["PEMS-SF", "Cricket", "HandOutlines"]:
             all_params["additional_subsample_subset"] = ADDITIONAL_SUBSAMPLE_SUBSET
 
         experiment_dataset(

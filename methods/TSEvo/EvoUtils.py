@@ -14,13 +14,10 @@ def eval(x, mop, return_values_of):
     return mop.evaluate([x], return_values_of)
 
 
-def evaluate_pop(pop, toolbox):
-    for ind in pop:
-        out = toolbox.evaluate(ind)
-        if type(out) == tuple:
-            ind.fitness.values = out
-        else:
-            ind.fitness.values = tuple(out[0])
+def evaluate_pop(pop, mop):
+    fitness_values = mop.evaluate_population(pop)
+    for ind, fitness in zip(pop, fitness_values):
+        ind.fitness.values = tuple(fitness)
     return pop
 
 
@@ -304,4 +301,3 @@ def mutate_hyperperameter(ind1, window, channels, num_channels):
     if random.random() < 0.5:
         window = random.randint(1, np.floor(0.5 * np.array(ind1).shape[-1]))
     return window, channels
-

@@ -23,12 +23,12 @@ DATASETS = [
     # 'BasicMotions', 'NATOPS', 'UWaveGestureLibrary',
     # 'Cricket',
     'ArticularyWordRecognition',
-    'Epilepsy', 'PenDigits',
+    'Epilepsy', # 'PenDigits',
     # 'PEMS-SF',
     'RacketSports', 'SelfRegulationSCP1'
 ]
 
-ADDITIONAL_SUBSAMPLE_SUBSET = 20
+ADDITIONAL_SUBSAMPLE_SUBSET = None
 PARAMS_PATH = 'experiments/params_cf/baseline_comte.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
 MULTIPROCESSING = True

@@ -21,22 +21,22 @@ if gpus:
     tf.config.experimental.set_memory_growth(gpus[0], True)
 
 DATASETS = [
-    'BasicMotions',
+    # 'BasicMotions',
     # 'NATOPS',
-    'UWaveGestureLibrary', 'Cricket',
-    'ArticularyWordRecognition', 'Epilepsy',
-    'PenDigits',
-    'PEMS-SF',
-    'RacketSports', 'SelfRegulationSCP1'
+    # 'UWaveGestureLibrary', 'Cricket',
+    # 'ArticularyWordRecognition', 'Epilepsy',
+    # 'PenDigits',
+    # 'PEMS-SF',
+    # 'RacketSports', 'SelfRegulationSCP1'
 ]
-"""
+
 DATASETS = [
-    # 'ECG200', 
+    'ECG200',
     'Gunpoint', 'Coffee',
     'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
     'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso',
     'NonInvasiveFatalECGThorax2', 'CBF',
-]"""
+]
 
 PARAMS_PATH = "experiments/params_cf/baseline_mcels.json"
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
