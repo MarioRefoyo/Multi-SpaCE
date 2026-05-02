@@ -21,7 +21,7 @@ from methods.DiscoXCF import DiscoXCF
 DATASETS = [
     # 'BasicMotions', 'NATOPS', 'UWaveGestureLibrary',
     # 'Cricket',
-    # 'ArticularyWordRecognition',
+    'ArticularyWordRecognition',
     'Epilepsy', # 'PenDigits',
     # 'PEMS-SF',
     'RacketSports', 'SelfRegulationSCP1'
