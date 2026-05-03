@@ -25,17 +25,19 @@ DATASETS = [
     'NonInvasiveFatalECGThorax2', 'CBF',
 ]
 DATASETS = [
-    'BasicMotions',
+    # 'BasicMotions',
     # 'NATOPS', 'UWaveGestureLibrary',
-    # 'Cricket',
+   #  'Cricket',
     # 'ArticularyWordRecognition', 'Epilepsy',
     # 'PenDigits',
-    # 'PEMS-SF',
-    'RacketSports', 'SelfRegulationSCP1'
+    'PEMS-SF',
+    # 'RacketSports', 'SelfRegulationSCP1'
 ]
 
+ADDITIONAL_SUBSAMPLE_SUBSET = 20
 PARAMS_PATH = "experiments/params_cf/baseline_mascots.json"
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
+
 
 MULTIPROCESSING = False
 I_START = 0
@@ -200,5 +202,7 @@ if __name__ == "__main__":
             exist_ok=True,
         )
         print(f"Starting experiment for dataset {dataset}...")
+        if dataset in ["PEMS-SF"]:
+            all_params["additional_subsample_subset"] = ADDITIONAL_SUBSAMPLE_SUBSET
         experiment_dataset(dataset, exp_name, all_params)
     print("Finished")

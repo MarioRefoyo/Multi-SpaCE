@@ -248,7 +248,7 @@ class MLP(NNClassifier):
             layers.append(nn.Dropout(self.dropout))
 
         layers.append(nn.Linear(n_sizes[-2], n_sizes[-1]))
-        layers.append(nn.Softmax())
+        layers.append(nn.Softmax(dim=1))
 
         self.layers = nn.Sequential(*layers)
 
@@ -307,4 +307,4 @@ class LSTM(NNClassifier):
             dropout=self.dropout,
         )
         self.fc = nn.Linear(self.hidden_size, self.output_size)
-        self.softmax = nn.Softmax()
+        self.softmax = nn.Softmax(dim=1)

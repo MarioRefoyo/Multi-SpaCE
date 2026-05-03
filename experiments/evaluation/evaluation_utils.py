@@ -715,7 +715,7 @@ def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, s
     results['subsequences'] = n_subsequences
     results['subsequences %'] = np.array(n_subsequences) / ((length * n_channels) / 2)
     results['(sparsity + subsequences %) / 2'] = (
-        results['sparsity'] + results['subsequences %']
+        results['sparsity'] + results['subsequences %']**0.25
     ) / 2
     results['times'] = execution_times
     results['method'] = method_name

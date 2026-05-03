@@ -1,0 +1,21 @@
+{
+  "seed": 24,
+  "subset": true,
+  "subset_number": 100,
+
+  "scaling": "none",
+  "distance": "euclidean",
+  "n_neighbors": 1,
+  "nun_strategy": "second_best",
+  "max_iter": 500,
+  "lr": 0.1,
+  "enable_lr_decay": false,
+  "lr_decay": 0.999,
+  "enable_budget": true,
+  "enable_tvnorm": true,
+  "l_budget_coeff": 1.0,
+  "l_tv_norm_coeff": 1.0,
+  "l_max_coeff": 1.0,
+  "tv_beta": 3.0,
+  "use_torch_explainer_for_tf": false
+}

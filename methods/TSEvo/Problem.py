@@ -147,7 +147,7 @@ class MultiObjectiveCounterfactuals(Problem):
         input_ = torch.from_numpy(individual).float()
 
         with torch.no_grad():
-            output = torch.nn.functional.softmax(self.model(input_)).detach().numpy()
+            output = torch.nn.functional.softmax(self.model(input_), dim=1).detach().numpy()
 
         idx = output.argmax()
 
