@@ -53,8 +53,8 @@ DATASETS = [
     'NonInvasiveFatalECGThorax2', 'CBF',
 ]"""
 
-# PARAMS_PATH = 'experiments/params_cf/multisubspace_second_nun.json'
-PARAMS_PATH = 'experiments/params_cf/multisubspace_final_gpu.json'
+PARAMS_PATH = 'experiments/params_cf/multisubspace_second_nun.json'
+# PARAMS_PATH = 'experiments/params_cf/multisubspace_final_gpu.json'
 # PARAMS_PATH = 'experiments/params_cf/multisubspace_final_noplau_gpu.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
 OC_EXPERIMENT_NAME = 'ae_basic_train'

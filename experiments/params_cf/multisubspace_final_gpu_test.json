@@ -1,11 +1,12 @@
 {
-  "metadata": "MultiSub-SpaCE final setting gpu",
+  "metadata": "MultiSub-SpaCE final setting gpu test",
   "seed": 24,
   "subset": true,
   "subset_number": 100,
 
   "scaling": "none",
 
+  "independent_channels_nun": false,
   "nun_strategy": "global",
   "n_neighbors": 1,
 

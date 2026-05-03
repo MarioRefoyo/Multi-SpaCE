@@ -17,5 +17,6 @@
   "l_tv_norm_coeff": 1.0,
   "l_max_coeff": 1.0,
   "tv_beta": 3.0,
-  "use_torch_explainer_for_tf": false
+  "use_torch_explainer_for_tf": false,
+  "break_tf_gradients_with_numpy": true
 }

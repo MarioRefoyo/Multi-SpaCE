@@ -30,7 +30,9 @@ configure_tensorflow_memory_growth()
 
 
 """DATASETS = [
-    'BasicMotions', 'NATOPS', 'UWaveGestureLibrary', 'Cricket',
+    'BasicMotions', 
+    # 'NATOPS', 'UWaveGestureLibrary', 
+    'Cricket',
     'ArticularyWordRecognition', 'Epilepsy',
     'PenDigits',
     'PEMS-SF',
@@ -43,8 +45,9 @@ DATASETS = [
     'NonInvasiveFatalECGThorax2', 'CBF',
 ]
 
-DATASETS = ['CBF']
+DATASETS = ['CBF', 'Coffee', 'FordA', 'Gunpoint', 'NATOPS', 'UWaveGestureLibrary']
 
+ADDITIONAL_SUBSAMPLE_SUBSET = None
 PARAMS_PATH = "experiments/params_cf/baseline_tsevo.json"
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
 MULTIPROCESSING = True
@@ -172,5 +175,7 @@ if __name__ == "__main__":
             exist_ok=True,
         )
         print(f"Starting experiment for dataset {dataset}...")
+        all_params["additional_subsample_subset"] = ADDITIONAL_SUBSAMPLE_SUBSET
         experiment_dataset(dataset, exp_name, all_params)
     print("Finished")
+

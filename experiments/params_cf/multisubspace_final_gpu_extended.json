@@ -6,7 +6,7 @@
 
   "scaling": "none",
 
-  "nun_strategy": "global",
+  "independent_channels_nun": false,
   "n_neighbors": 1,
 
   "population_size": 100,
@@ -14,7 +14,7 @@
   "integrated_pruning_mutation_prob": [0],
   "final_pruning_mutation_prob": [0.75],
   "add_subseq_mutation_prob": 0,
-  "max_iter": [[75, 0, 25]],
+  "max_iter": [[100, 0, 50]],
   "init_fi": ["none"],
   "init_pct": 0.2,
   "reinit": true,

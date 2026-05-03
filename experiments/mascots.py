@@ -2,7 +2,7 @@ import json
 import os
 import pickle
 import random
-from multiprocessing import Pool
+import multiprocessing as mp
 
 import numpy as np
 import tensorflow as tf
@@ -16,12 +16,6 @@ from experiments.experiment_utils import (
 )
 from experiments.results.results_concatenator import concatenate_result_files
 from methods.MASCOTSCF import MASCOTSCF
-
-
-gpus = tf.config.list_physical_devices("GPU")
-if gpus:
-    for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
 
 
 DATASETS = [
@@ -47,6 +41,26 @@ MULTIPROCESSING = False
 I_START = 0
 THREAD_SAMPLES = 100
 POOL_SIZE = 1
+MP_START_METHOD = "spawn"
+
+
+def configure_tensorflow_runtime(log=False):
+    gpus = tf.config.list_physical_devices("GPU")
+    if not gpus:
+        if log:
+            print(f"TensorFlow {tf.__version__}: no GPU detected.")
+        return
+
+    for gpu in gpus:
+        try:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        except RuntimeError as exc:
+            if log:
+                print(f"Could not enable memory growth for {gpu}: {exc}")
+
+    if log:
+        growth_enabled = tf.config.experimental.get_memory_growth(gpus[0])
+        print(f"TensorFlow {tf.__version__}: GPU memory growth enabled={growth_enabled}")
 
 
 def build_explainer(model_wrapper, X_train, y_train, params, build_cache_dir):
@@ -68,6 +82,8 @@ def build_explainer(model_wrapper, X_train, y_train, params, build_cache_dir):
 
 
 def get_counterfactual_worker(sample_dict):
+    configure_tensorflow_runtime(log=False)
+
     dataset = sample_dict["dataset"]
     X_train, y_train = sample_dict["train_data_tuple"]
     exp_name = sample_dict["exp_name"]
@@ -134,8 +150,17 @@ def experiment_dataset(dataset, exp_name, params):
                 }
             )
 
-        print("Starting counterfactual generation using multiprocessing...")
-        with Pool(POOL_SIZE) as p:
+        pool_size = min(POOL_SIZE, len(samples))
+        if pool_size == 0:
+            print("No test batches to process after applying I_START. Skipping multiprocessing run.")
+            return
+
+        print(
+            f"Starting counterfactual generation using multiprocessing "
+            f"(start_method={MP_START_METHOD}, pool_size={pool_size}, batches={len(samples)})..."
+        )
+        ctx = mp.get_context(MP_START_METHOD)
+        with ctx.Pool(pool_size, maxtasksperchild=1) as p:
             _ = list(tqdm(p.imap(get_counterfactual_worker, samples), total=len(samples)))
 
         concatenate_result_files(dataset, MODEL_TO_EXPLAIN_EXPERIMENT_NAME, exp_name)
@@ -164,6 +189,9 @@ def experiment_dataset(dataset, exp_name, params):
 
 
 if __name__ == "__main__":
+    mp.freeze_support()
+    configure_tensorflow_runtime(log=True)
+
     exp_name = "mascots_scalar_gpu"
     all_params = load_parameters_from_json(PARAMS_PATH)
     for dataset in DATASETS:

@@ -13,8 +13,8 @@ from pathlib import Path
 
 from methods.outlier_calculators import AEOutlierCalculator, IFOutlierCalculator, LOFOutlierCalculator
 from experiments.experiment_utils import local_data_loader, label_encoder, nun_retrieval, get_subsample
-from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder
-from methods.MultiSubSpaCE.FitnessFunctions import fitness_function_mo
+from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder, SecondBestGlobalNUNFinder
+from methods.MultiSubSpaCE.FitnessFunctions import fitness_function_mo, fitness_function_mo_no_plausibility
 from experiments.experiment_utils import load_model
 
 
@@ -37,10 +37,15 @@ def thresholded_change_mask(x_orig, x_cf):
     threshold_values = np.sqrt(np.abs(x_orig) * 0.0001)
     return (proximity_values > threshold_values).astype(int)
 
+def normal_change_mask(x_orig, x_cf):
+    orig_change_mask = (x_orig != x_cf).astype(int)
+    return orig_change_mask
+
 
 def calculate_change_mask(x_orig, x_cf, x_nun=None, verbose=0):
     # Get original change mask (could contain points with common values between NUN, x_orig and x_cf)
-    orig_change_mask = thresholded_change_mask(x_orig, x_cf)
+    # orig_change_mask = thresholded_change_mask(x_orig, x_cf)
+    orig_change_mask = normal_change_mask(x_orig, x_cf)
     orig_change_mask = orig_change_mask.T.reshape(-1, 1)
 
     # Find common values
@@ -64,7 +69,8 @@ def calculate_change_mask(x_orig, x_cf, x_nun=None, verbose=0):
         new_x_orig = x_orig + noise * start_end_mask.reshape(x_orig.shape, order='F')
 
         # Calculate adjusted change mask
-        change_mask = thresholded_change_mask(new_x_orig, x_cf)
+        # change_mask = thresholded_change_mask(new_x_orig, x_cf)
+        change_mask = normal_change_mask(new_x_orig, x_cf)
     else:
         change_mask = orig_change_mask.reshape(x_orig.shape, order='F')
 
@@ -121,17 +127,40 @@ def load_dataset_for_eval(dataset, model_to_explain, osc_names, scaling="none"):
     gknn_nuns, desired_classes, _ = nun_finder.retrieve_nuns(X_test, y_pred_test)
     gknn_nuns = gknn_nuns[:, 0, :, :]
     possible_nuns['gknn'] = gknn_nuns
-    """# Get nuns with individual knn for channels
+    nun_finder = SecondBestGlobalNUNFinder(
+        X_train, y_train, y_pred_train, distance='euclidean',
+        from_true_labels=False, backend='tf', model=model_wrapper
+    )
+    sgknn_nuns, _, _ = nun_finder.retrieve_nuns(X_test, y_pred_test)
+    sgknn_nuns = sgknn_nuns[:, 0, :, :]
+    possible_nuns['sgknn'] = sgknn_nuns
+    # Get nuns with individual knn for channels
     nun_finder = IndependentNUNFinder(
         X_train, y_train, y_pred_train, distance='euclidean', n_neighbors=1,
-        from_true_labels=False, backend='tf', model=model
+        from_true_labels=False, backend='tf', model=model_wrapper
     )
     iknn_nuns, desired_classes, _ = nun_finder.retrieve_nuns(X_test, y_pred_test)
     iknn_nuns = iknn_nuns[:, 0, :, :]
-    possible_nuns['iknn'] = iknn_nuns"""
-    # NOTE: DESIRED CLASSES ARE ALWAYS THE SAME
+    possible_nuns['iknn'] = iknn_nuns
+    # NOTE: desired_classes here follow the last finder executed and should not be assumed to be
+    # shared across every NUN strategy.
 
     return data_tuple, y_pred_test, model_wrapper, outlier_calculators, possible_nuns, desired_classes
+
+
+def get_method_nun_key(method_params):
+    nun_strategy = method_params.get("nun_strategy")
+    if nun_strategy == "global":
+        return "gknn"
+    if nun_strategy == "independent":
+        return "iknn"
+    if nun_strategy == "second_best":
+        return "sgknn"
+    if "independent_channels_nun" in method_params:
+        if method_params["independent_channels_nun"]:
+            return "iknn"
+        return "gknn"
+    return None
 
 
 def apply_quantile_penalization(results_df, penalization_quantile):
@@ -155,33 +184,57 @@ def apply_quantile_penalization(results_df, penalization_quantile):
     return penalized_results_df
 
 
-def get_penalization_quantiles(penalization_quantile):
-    if np.isscalar(penalization_quantile):
-        quantiles = [float(penalization_quantile)]
+def parse_penalization_choice(choice):
+    if isinstance(choice, str):
+        normalized_choice = choice.strip().lower()
+        if normalized_choice == "none":
+            return "none", None
+        try:
+            choice = float(choice)
+        except ValueError as exc:
+            raise ValueError(
+                "penalization_quantile entries must be numeric values in [0, 1] or 'none'."
+            ) from exc
+
+    quantile = float(choice)
+    if not 0 <= quantile <= 1:
+        raise ValueError("penalization_quantile must be between 0 and 1.")
+
+    return quantile, quantile
+
+
+def get_penalization_choices(penalization_quantile):
+    if isinstance(penalization_quantile, str) or np.isscalar(penalization_quantile):
+        raw_choices = [penalization_quantile]
     else:
-        quantiles = [float(quantile) for quantile in penalization_quantile]
+        raw_choices = penalization_quantile
 
-    for quantile in quantiles:
-        if not 0 <= quantile <= 1:
-            raise ValueError("penalization_quantile must be between 0 and 1.")
+    parsed_choices = []
+    seen_keys = set()
+    for raw_choice in raw_choices:
+        key, quantile = parse_penalization_choice(raw_choice)
+        if key not in seen_keys:
+            parsed_choices.append((key, quantile))
+            seen_keys.add(key)
 
-    return quantiles
+    return parsed_choices
 
 
 def should_return_quantile_dict(penalization_quantile):
-    return not np.isscalar(penalization_quantile)
+    return not isinstance(penalization_quantile, str) and not np.isscalar(penalization_quantile)
 
 
 def build_penalization_results_dict(results_df, dataset, method_cfs_dataset, common_test_indexes,
                                     penalize_invalid, penalization_quantile):
-    if penalize_invalid:
-        quantiles = get_penalization_quantiles(penalization_quantile)
-        keys_and_frames = [
-            (quantile, apply_quantile_penalization(results_df, quantile))
-            for quantile in quantiles
-        ]
-    else:
+    if not penalize_invalid and not should_return_quantile_dict(penalization_quantile):
         keys_and_frames = [("none", results_df)]
+    else:
+        keys_and_frames = []
+        for key, quantile in get_penalization_choices(penalization_quantile):
+            if quantile is None:
+                keys_and_frames.append((key, results_df))
+            else:
+                keys_and_frames.append((key, apply_quantile_penalization(results_df, quantile)))
 
     return {
         key: {
@@ -234,11 +287,9 @@ def process_method_dir(args):
         method_test_indexes = method_params["X_test_indexes"]
 
     # Get nuns used by the method depending on the name
-    if "independent_channels_nun" in method_params:
-        if method_params["independent_channels_nun"]:
-            nuns = possible_nuns["iknn"]
-        else:
-            nuns = possible_nuns["gknn"]
+    nun_key = get_method_nun_key(method_params)
+    if nun_key is not None:
+        nuns = possible_nuns[nun_key]
     else:
         nuns = np.array([None] * len(X_test))
 
@@ -322,11 +373,9 @@ def calculate_metrics_for_dataset(dataset, methods, model_to_explain,
             method_test_indexes = method_params["X_test_indexes"]
 
         # Get nuns used by the method depending on the name
-        if "independent_channels_nun" in method_params:
-            if method_params["independent_channels_nun"]:
-                nuns = possible_nuns["iknn"]
-            else:
-                nuns = possible_nuns["gknn"]
+        nun_key = get_method_nun_key(method_params)
+        if nun_key is not None:
+            nuns = possible_nuns[nun_key]
         else:
             nuns = np.array([None]*len(X_test))
 
@@ -463,11 +512,9 @@ def obtain_cfs_objectives(dataset, methods, model_to_explain,
             method_test_indexes = method_params["X_test_indexes"]
 
         # Get nuns used by the method depending on the name
-        if "independent_channels_nun" in method_params:
-            if method_params["independent_channels_nun"]:
-                nuns = possible_nuns["iknn"]
-            else:
-                nuns = possible_nuns["gknn"]
+        nun_key = get_method_nun_key(method_params)
+        if nun_key is not None:
+            nuns = possible_nuns[nun_key]
         else:
             nuns = np.array([None]*len(X_test))
 
@@ -554,8 +601,22 @@ def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, s
                 aux_outlier_scores = np.zeros((predicted_probs.shape[0], 1))
             # Get fitness scores
             change_masks = (counterfactuals_i != x_orig_i).astype(int)
-            objective_fitness = fitness_function_mo(change_masks, predicted_probs, desired_class, aux_outlier_scores,
-                                                    outlier_calculators["AE"].get_outlier_scores(x_orig_i)[0], 100)
+            if outlier_calculators is not None:
+                original_outlier_score = outlier_calculators["AE"].get_outlier_scores(x_orig_i)[0]
+            else:
+                original_outlier_score = 0
+            if len(mo_weights) == 3:
+                objective_fitness = fitness_function_mo_no_plausibility(
+                    change_masks, predicted_probs, desired_class, aux_outlier_scores,
+                    original_outlier_score, 100
+                )
+            elif len(mo_weights) == 4:
+                objective_fitness = fitness_function_mo(
+                    change_masks, predicted_probs, desired_class, aux_outlier_scores,
+                    original_outlier_score, 100
+                )
+            else:
+                raise ValueError(f"Unsupported number of multi-objective weights: {len(mo_weights)}")
             fitness = (objective_fitness * mo_weights).sum(axis=1)
             best_cf_i = np.argsort(fitness)[-1]
             counterfactual_i = counterfactuals_i[best_cf_i].reshape(length, n_channels)

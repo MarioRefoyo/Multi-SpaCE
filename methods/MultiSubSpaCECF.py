@@ -2,7 +2,7 @@ import numpy as np
 import copy
 
 from .MultiSubSpaCE.MOEvolutionaryOptimizers import IntegratedPruningNSubsequenceEvolutionaryOptimizer, SubsequencePruningEvolutionaryOptimizer
-from .MultiSubSpaCE.FitnessFunctions import fitness_function_mo, fitness_function_mo_os
+from .MultiSubSpaCE.FitnessFunctions import fitness_function_mo, fitness_function_mo_os, fitness_function_mo_no_plausibility
 from .counterfactual_common import CounterfactualMethod
 
 
@@ -26,8 +26,10 @@ class MultiSubSpaCECF(CounterfactualMethod):
             used_fitness_function = fitness_function_mo
         elif plausibility_objective == "os":
             used_fitness_function = fitness_function_mo_os
+        elif plausibility_objective == "none":
+            used_fitness_function = fitness_function_mo_no_plausibility
         else:
-            raise ValueError('Not valid plausibility_objective. Choose "ios" or "os".')
+            raise ValueError('Not valid plausibility_objective. Choose "ios", "os" or "none".')
 
 
         # Init Genetic Optimizer

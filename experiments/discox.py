@@ -4,7 +4,7 @@ import random
 import pickle
 import sys
 import json
-from multiprocessing import Pool
+import multiprocessing as mp
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
@@ -43,6 +43,7 @@ MULTIPROCESSING = True
 I_START = 0
 THREAD_SAMPLES = 5
 POOL_SIZE = 1
+MP_START_METHOD = "spawn"
 # INDEXES_TO_CALCULATE = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
 # INDEXES_TO_CALCULATE = [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
 # INDEXES_TO_CALCULATE = [40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59]
@@ -51,7 +52,28 @@ POOL_SIZE = 1
 INDEXES_TO_CALCULATE = None
 
 
+def configure_tensorflow_runtime(log=False):
+    gpus = tf.config.list_physical_devices("GPU")
+    if not gpus:
+        if log:
+            print(f"TensorFlow {tf.__version__}: no GPU detected.")
+        return
+
+    for gpu in gpus:
+        try:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        except RuntimeError as exc:
+            if log:
+                print(f"Could not enable memory growth for {gpu}: {exc}")
+
+    if log:
+        growth_enabled = tf.config.experimental.get_memory_growth(gpus[0])
+        print(f"TensorFlow {tf.__version__}: GPU memory growth enabled={growth_enabled}")
+
+
 def get_counterfactual_worker(sample_dict):
+    configure_tensorflow_runtime(log=False)
+
     dataset = sample_dict["dataset"]
     X_train, y_train = sample_dict["train_data_tuple"]
     exp_name = sample_dict["exp_name"]
@@ -84,7 +106,7 @@ def get_counterfactual_worker(sample_dict):
         results.append(result)
 
     # Store results of cf in list
-    store_partial_cfs(results, first_sample_i, first_sample_i+THREAD_SAMPLES-1,
+    store_partial_cfs(results, first_sample_i, first_sample_i + len(x_orig_samples_worker) - 1,
                       dataset, MODEL_TO_EXPLAIN_EXPERIMENT_NAME, file_suffix_name=exp_name)
     return 1
 
@@ -123,8 +145,17 @@ def experiment_dataset(dataset, exp_name, params):
             samples.append(sample_dict)
 
         # Execute counterfactual generation
-        print('Starting counterfactual generation using multiprocessing...')
-        with Pool(POOL_SIZE) as p:
+        pool_size = min(POOL_SIZE, len(samples))
+        if pool_size == 0:
+            print("No test batches to process after applying I_START. Skipping multiprocessing run.")
+            return
+
+        print(
+            f"Starting counterfactual generation using multiprocessing "
+            f"(start_method={MP_START_METHOD}, pool_size={pool_size}, batches={len(samples)})..."
+        )
+        ctx = mp.get_context(MP_START_METHOD)
+        with ctx.Pool(pool_size, maxtasksperchild=1) as p:
             _ = list(tqdm(p.imap(get_counterfactual_worker, samples), total=len(samples)))
 
         # Concatenate the results
@@ -151,6 +182,9 @@ def experiment_dataset(dataset, exp_name, params):
 
 
 if __name__ == "__main__":
+    mp.freeze_support()
+    configure_tensorflow_runtime(log=True)
+
     # Load parameters
     exp_name = "discox_gpu"
     all_params = load_parameters_from_json(PARAMS_PATH)

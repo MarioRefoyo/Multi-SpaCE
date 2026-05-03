@@ -51,15 +51,23 @@ class CFExplainer(Saliency):
         self.metrics = None
         self.cf_label = None
 
-    def native_guide_retrieval(self, query, target_label, distance, n_neighbors):
+    def native_guide_retrieval(self, query, distance, n_neighbors, target_label=None, predicted_label=None):
         dim_nums, ts_length = query.shape[0], query.shape[1]
         df = pd.DataFrame(self.background_label, columns=["label"])
+        if target_label is not None:
+            candidate_indexes = df[df["label"] == target_label].index.values
+        elif predicted_label is not None:
+            candidate_indexes = df[df["label"] != predicted_label].index.values
+        else:
+            raise ValueError("Either target_label or predicted_label must be provided.")
 
         knn = KNeighborsTimeSeries(n_neighbors=n_neighbors, metric=distance)
-        knn.fit(self.background_data[list(df[df["label"] == target_label].index.values)])
+        knn.fit(self.background_data[list(candidate_indexes)])
 
         dist, ind = knn.kneighbors(query.reshape(1, dim_nums, ts_length), return_distance=True)
-        return dist, df[df["label"] == target_label].index[ind[0][:]]
+        selected_indexes = candidate_indexes[ind[0][:]]
+        selected_label = int(df.loc[selected_indexes[0], "label"])
+        return dist, selected_indexes, selected_label
 
     def cf_label_fun(self, instance):
         output = self.softmax_fn(self.predict_fn(instance.reshape(1, instance.shape[0], instance.shape[1]).float()))
@@ -77,10 +85,22 @@ class CFExplainer(Saliency):
 
         top_prediction_class = np.argmax(kwargs["target"].detach().cpu().numpy())
 
-        cf_label = self.cf_label_fun(data)
+        predicted_label = int(top_prediction_class)
+        nun_strategy = getattr(self.args, "nun_strategy", "second_best")
+        if nun_strategy == "second_best":
+            cf_label = self.cf_label_fun(data)
+            _, idx, selected_label = self.native_guide_retrieval(
+                query, "euclidean", 1, target_label=cf_label
+            )
+        elif nun_strategy == "global":
+            _, idx, selected_label = self.native_guide_retrieval(
+                query, "euclidean", 1, predicted_label=predicted_label
+            )
+            cf_label = selected_label
+        else:
+            raise ValueError(f"Unsupported nun_strategy: {nun_strategy}")
         self.cf_label = cf_label
 
-        dis, idx = self.native_guide_retrieval(query, cf_label, "euclidean", 1)
         NUN = self.background_data[idx.item()]
 
         self.eps = 1.0
@@ -207,18 +227,32 @@ class TFMCELSExplainer(Saliency):
         self.metrics = None
         self.cf_label = None
 
-    def native_guide_retrieval(self, query, target_label, distance, n_neighbors):
+    def _predict_with_optional_numpy_break(self, input_tensor):
+        reshaped = tf.reshape(input_tensor, (1, input_tensor.shape[0], input_tensor.shape[1]))
+        if getattr(self.args, "break_tf_gradients_with_numpy", False):
+            return self.predict_fn(reshaped.numpy())
+        return self.predict_fn(reshaped)
+
+    def native_guide_retrieval(self, query, distance, n_neighbors, target_label=None, predicted_label=None):
         dim_nums, ts_length = query.shape[0], query.shape[1]
         df = pd.DataFrame(self.background_label, columns=["label"])
+        if target_label is not None:
+            candidate_indexes = df[df["label"] == target_label].index.values
+        elif predicted_label is not None:
+            candidate_indexes = df[df["label"] != predicted_label].index.values
+        else:
+            raise ValueError("Either target_label or predicted_label must be provided.")
 
         knn = KNeighborsTimeSeries(n_neighbors=n_neighbors, metric=distance)
-        knn.fit(self.background_data[list(df[df["label"] == target_label].index.values)])
+        knn.fit(self.background_data[list(candidate_indexes)])
 
         dist, ind = knn.kneighbors(query.reshape(1, dim_nums, ts_length), return_distance=True)
-        return dist, df[df["label"] == target_label].index[ind[0][:]]
+        selected_indexes = candidate_indexes[ind[0][:]]
+        selected_label = int(df.loc[selected_indexes[0], "label"])
+        return dist, selected_indexes, selected_label
 
     def cf_label_fun(self, instance):
-        output = self.softmax_fn(self.predict_fn(tf.reshape(instance, (1, instance.shape[0], instance.shape[1]))))
+        output = self.softmax_fn(self._predict_with_optional_numpy_break(instance))
         target = int(tf.argsort(output, direction="DESCENDING")[0, 1].numpy())
         return target
 
@@ -232,10 +266,22 @@ class TFMCELSExplainer(Saliency):
         target_array = kwargs["target"].numpy() if hasattr(kwargs["target"], "numpy") else np.asarray(kwargs["target"])
         top_prediction_class = int(np.argmax(target_array))
 
-        cf_label = self.cf_label_fun(data)
+        predicted_label = top_prediction_class
+        nun_strategy = getattr(self.args, "nun_strategy", "second_best")
+        if nun_strategy == "second_best":
+            cf_label = self.cf_label_fun(data)
+            _, idx, selected_label = self.native_guide_retrieval(
+                query, "euclidean", 1, target_label=cf_label
+            )
+        elif nun_strategy == "global":
+            _, idx, selected_label = self.native_guide_retrieval(
+                query, "euclidean", 1, predicted_label=predicted_label
+            )
+            cf_label = selected_label
+        else:
+            raise ValueError(f"Unsupported nun_strategy: {nun_strategy}")
         self.cf_label = cf_label
 
-        dis, idx = self.native_guide_retrieval(query, cf_label, "euclidean", 1)
         NUN = self.background_data[idx.item()]
 
         self.eps = 1.0
@@ -259,9 +305,7 @@ class TFMCELSExplainer(Saliency):
 
             with tf.GradientTape() as tape:
                 perturbated_input = data * (1 - mask) + Rt * mask
-                pred_outputs = self.softmax_fn(
-                    self.predict_fn(tf.reshape(perturbated_input, (1, perturbated_input.shape[0], perturbated_input.shape[1])))
-                )
+                pred_outputs = self.softmax_fn(self._predict_with_optional_numpy_break(perturbated_input))
 
                 l_maximize = 1 - pred_outputs[0][cf_label]
                 l_budget_loss = tf.reduce_mean(tf.abs(mask)) * float(self.args.enable_budget)
@@ -313,9 +357,7 @@ class TFMCELSExplainer(Saliency):
         converted_mask_tf = tf.convert_to_tensor(converted_mask, dtype=tf.float32)
         perturbated_input = data * (1 - converted_mask_tf) + Rt * converted_mask_tf
 
-        pred_outputs = self.softmax_fn(
-            self.predict_fn(tf.reshape(perturbated_input, (1, perturbated_input.shape[0], perturbated_input.shape[1])))
-        )
+        pred_outputs = self.softmax_fn(self._predict_with_optional_numpy_break(perturbated_input))
         target_prob = float(pred_outputs[0][cf_label].numpy())
         converted_mask = converted_mask_tf.numpy().flatten()
 

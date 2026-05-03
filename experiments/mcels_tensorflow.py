@@ -19,11 +19,11 @@ from methods.MCELSCF import MCELSCF
 DATASETS = [
     'BasicMotions',
     'NATOPS',
-   # 'UWaveGestureLibrary', 'Cricket',
-   # 'ArticularyWordRecognition', 'Epilepsy',
-   # 'PenDigits',
+    'UWaveGestureLibrary', 'Cricket',
+    'ArticularyWordRecognition', 'Epilepsy',
+    'PenDigits',
     
-   # 'RacketSports',
+    'RacketSports',
     'SelfRegulationSCP1',
     'PEMS-SF',
 ]
@@ -36,7 +36,7 @@ DATASETS = [
     'NonInvasiveFatalECGThorax2', 'CBF',
 ]"""
 
-PARAMS_PATH = "experiments/params_cf/baseline_mcels.json"
+PARAMS_PATH = "experiments/params_cf/baseline_mcels_tensorflow.json"
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
 MULTIPROCESSING = True
 I_START = 0
@@ -176,7 +176,7 @@ if __name__ == "__main__":
     mp.freeze_support()
     configure_tensorflow_runtime(log=True)
 
-    exp_name = "mcels"
+    exp_name = "mcels_tensorflow"
     params = load_parameters_from_json(PARAMS_PATH)
     for dataset in DATASETS:
         os.makedirs(f"./experiments/results/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/{exp_name}", exist_ok=True)

@@ -110,6 +110,61 @@ class GlobalNUNFinder(NUNFinder):
         return nun, nn_label, dist
 
 
+class TargetClassGlobalNUNFinder(NUNFinder):
+    def __init__(self, X_train, y_train, y_pred, distance, from_true_labels, backend):
+        # Force 1 n_neighbors
+        n_neighbors = 1
+        super().__init__(X_train, y_train, y_pred, distance, from_true_labels, backend, n_neighbors)
+
+        classes = np.unique(y_train)
+        same_class_index_dict = {}
+        same_class_knn_dict = {}
+        for c in classes:
+            same_class_index = self.df_index[self.df_index[self.label_name] == c]
+            if len(same_class_index) == 0:
+                continue
+
+            knn = KNeighborsTimeSeries(n_neighbors=n_neighbors, metric=distance)
+            knn.fit(self.X_train[same_class_index.index.values])
+
+            same_class_index_dict[c] = same_class_index
+            same_class_knn_dict[c] = knn
+
+        self.same_class_index_dict = same_class_index_dict
+        self.same_class_knn_dict = same_class_knn_dict
+
+    def retrieve_single_nun_specific(self, x_orig, target_label):
+        target_nun_indexes, nun_label, target_dists = self.get_nns_indexes(
+            self.same_class_knn_dict[target_label], x_orig, self.same_class_index_dict[target_label]
+        )
+
+        nun = self.X_train[target_nun_indexes]
+        dist = target_dists
+
+        return nun, nun_label, dist
+
+
+class SecondBestGlobalNUNFinder(TargetClassGlobalNUNFinder):
+    def __init__(self, X_train, y_train, y_pred, distance, from_true_labels, backend, model):
+        super().__init__(X_train, y_train, y_pred, distance, from_true_labels, backend)
+        self.model = model
+
+    def retrieve_nuns(self, x_origs, original_labels=None):
+        # Match parent behavior for a single sample input before asking the model for probabilities.
+        if len(x_origs.shape) != 3:
+            if not ((x_origs.shape[0] == self.X_train.shape[1]) & (x_origs.shape[1] == self.X_train.shape[2])):
+                raise ValueError(
+                    f"The input must have shape of (n_instances, {self.X_train.shape[1]}, {self.X_train.shape[2]}), "
+                    f"but input has shape of {x_origs.shape}"
+                )
+            x_origs = copy.deepcopy(x_origs)
+            x_origs = np.expand_dims(x_origs, axis=0)
+
+        predicted_probs = self.model.predict(x_origs)
+        second_best_labels = np.argsort(predicted_probs, axis=1)[:, -2]
+        return super().retrieve_nuns(x_origs, second_best_labels)
+
+
 class IndependentNUNFinder(NUNFinder):
     def __init__(self, X_train, y_train, y_pred, distance, from_true_labels, backend, n_neighbors, model):
         super().__init__(X_train, y_train, y_pred, distance, from_true_labels, backend, n_neighbors)
@@ -220,4 +275,3 @@ class IndependentNUNFinder(NUNFinder):
                 print(f"Channel labels correspond to instances of classes: {feature_labels}. Desired class is {nn_label}")
 
         return nuns, nn_label, dist
-

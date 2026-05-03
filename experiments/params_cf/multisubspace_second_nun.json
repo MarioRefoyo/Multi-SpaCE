@@ -6,9 +6,9 @@
 
   "scaling": "none",
 
-  "nun_strategy": "global",
+  "nun_strategy": "second_best",
   "n_neighbors": 1,
-
+  
   "population_size": 100,
   "change_subseq_mutation_prob": [0.75],
   "integrated_pruning_mutation_prob": [0],

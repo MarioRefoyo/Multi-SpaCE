@@ -4,9 +4,11 @@
   "subset": true,
   "subset_number": 100,
 
+  "run_seed": [0, 1, 2, 3, 24],
+
   "scaling": "none",
 
-  "nun_strategy": "global",
+  "independent_channels_nun": false,
   "n_neighbors": 1,
 
   "population_size": 100,

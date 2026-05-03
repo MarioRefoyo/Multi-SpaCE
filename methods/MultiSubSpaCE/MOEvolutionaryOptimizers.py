@@ -67,8 +67,12 @@ class MOEvolutionaryOptimizer(ABC):
         self.init_pct = copy.deepcopy(self.original_init_pct)
         self.init_mask = init_mask
 
-        # Compute initial outlier scores
-        self.outlier_scores_orig = self.outlier_calculator.get_outlier_scores(self.x_orig)
+        # Compute initial outlier scores when plausibility is enabled. Otherwise, use zeros so the
+        # plausibility objective becomes neutral without requiring outlier model inference.
+        if self.outlier_calculator is not None:
+            self.outlier_scores_orig = self.outlier_calculator.get_outlier_scores(self.x_orig)
+        else:
+            self.outlier_scores_orig = np.zeros((1,))
         # self.outlier_score_nun = self.outlier_calculator.get_outlier_scores(self.nun_example)
 
         # Get dimensionality attributes
@@ -312,6 +316,17 @@ class MOEvolutionaryOptimizer(ABC):
             for o in range(n_objectives):
                 front_objective_fitness = front_all_objectives_fitness[:, o]
                 order_by_objective_fitness = np.argsort(front_objective_fitness)
+                o_min = front_objective_fitness[order_by_objective_fitness[0]]
+                o_max = front_objective_fitness[order_by_objective_fitness[-1]]
+                norm_o = o_max - o_min
+
+                # Ignore objectives with no variation inside the front. This keeps a constant
+                # objective, such as plausibility in "none" mode, from introducing NaNs and
+                # distorting NSGA-II crowding distance.
+                if norm_o == 0:
+                    front_distance[:, o] = 0
+                    continue
+
                 for n in range(1, front_len-1):
                     idx_minus = order_by_objective_fitness[n-1]
                     idx = order_by_objective_fitness[n]
@@ -319,9 +334,6 @@ class MOEvolutionaryOptimizer(ABC):
                     front_distance[idx, o] = front_objective_fitness[idx_plus] - front_objective_fitness[idx_minus]
 
                 # Normalize distance
-                o_min = front_objective_fitness[order_by_objective_fitness[0]]
-                o_max = front_objective_fitness[order_by_objective_fitness[-1]]
-                norm_o = o_max - o_min
                 front_distance[:, o] = front_distance[:, o] / norm_o
 
             # Calculate total crowing distance
