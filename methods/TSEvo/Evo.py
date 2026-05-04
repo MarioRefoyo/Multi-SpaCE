@@ -108,7 +108,7 @@ class EvolutionaryOptimization:
             "mutate", getattr(EvoUtils, transformer), reference_set=reference_set
         )
 
-    def run(self):
+    def run(self, orig=False):
         pop = self.toolbox.population(n=self.MU)
         window = []
         mutation = []
@@ -181,11 +181,13 @@ class EvolutionaryOptimization:
                     add.append(ind.window)
                 window.append([np.mean(add), np.std(add)])
 
-        for item in best:
+        selected_archive = best if orig else hof
+        for item in selected_archive:
             label, output = self.mop.predict(np.array([item]), full=True)
             item.output = output
 
         if self.verbose == 2:
-            return best, logbook, window, mutation
+            return selected_archive, logbook, window, mutation
 
-        return best, best[0].output
+        outputs = np.asarray([item.output for item in selected_archive])
+        return selected_archive, outputs

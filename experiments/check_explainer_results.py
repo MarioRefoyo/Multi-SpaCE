@@ -13,7 +13,7 @@ DATASETS = [
 ]
 
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
-METHOD_NAME = "mascots_scalar_gpu"
+METHOD_NAME = "tsevo"
 RESULTS_ROOT = Path("experiments/results")
 
 

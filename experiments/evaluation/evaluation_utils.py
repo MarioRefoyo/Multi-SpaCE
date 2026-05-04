@@ -77,6 +77,40 @@ def calculate_change_mask(x_orig, x_cf, x_nun=None, verbose=0):
     return change_mask
 
 
+def infer_desired_class_for_ranking(predicted_probs, original_class, preferred_class=None):
+    if preferred_class is not None:
+        return int(preferred_class)
+
+    predicted_classes = np.argmax(predicted_probs, axis=1)
+    valid_mask = predicted_classes != original_class
+
+    if np.any(valid_mask):
+        valid_classes = predicted_classes[valid_mask]
+        class_values, class_counts = np.unique(valid_classes, return_counts=True)
+        max_count = class_counts.max()
+        top_classes = class_values[class_counts == max_count]
+        if len(top_classes) == 1:
+            return int(top_classes[0])
+
+        mean_probs = np.array(
+            [predicted_probs[valid_mask, class_id].mean() for class_id in top_classes]
+        )
+        return int(top_classes[np.argmax(mean_probs)])
+
+    mean_probs = predicted_probs.mean(axis=0).copy()
+    mean_probs[int(original_class)] = -np.inf
+    return int(np.argmax(mean_probs))
+
+
+def ensure_cf_batch(counterfactuals_i, length, n_channels):
+    arr = np.asarray(counterfactuals_i)
+    if arr.ndim == 2:
+        return arr.reshape(1, length, n_channels)
+    if arr.ndim == 3:
+        return arr.reshape(arr.shape[0], length, n_channels)
+    raise ValueError(f"Unexpected counterfactual shape: {arr.shape}")
+
+
 def load_dataset_for_eval(dataset, model_to_explain, osc_names, scaling="none"):
     X_train, y_train, X_test, y_test = local_data_loader(str(dataset), scaling=scaling, backend="tf", data_path="./experiments/data")
     y_train, y_test = label_encoder(y_train, y_test)
@@ -419,10 +453,10 @@ def get_method_objectives(model, outlier_calculator, X_test, nuns, solutions_in,
     all_objectives_list = []
     for i in tqdm(range(len(X_test))):
         x_orig_i = X_test[i]
-        counterfactuals_i = counterfactuals[i]
+        counterfactuals_i = ensure_cf_batch(counterfactuals[i], length, n_channels)
 
         # Calculate valids
-        predicted_logits = model.predict(counterfactuals_i, verbose=0)
+        predicted_logits = model.predict(counterfactuals_i)
         predicted_classes = np.argmax(predicted_logits, axis=1)
         valids = (predicted_classes != original_classes[i]).astype(int)
 
@@ -436,58 +470,248 @@ def get_method_objectives(model, outlier_calculator, X_test, nuns, solutions_in,
                 "sparsity": [np.nan],
                 "subsequences": [np.nan],
                 "IoS": [np.nan],
+                "L2": [np.nan],
                 "execution_time": execution_times[i]
             }
 
         else:
-            if len(valid_idx) < len(counterfactuals_i):
-                raise ValueError("Not all cfs in front all valid")
+            valid_counterfactuals_i = counterfactuals_i[valid_idx]
+            n_counterfactuals_i = valid_counterfactuals_i.shape[0]
 
+            # Calculate desired class based on NUN
+            if nuns[i] is not None:
+                desired_class = np.argmax(
+                    model.predict(np.expand_dims(nuns[i], axis=0)), axis=1
+                )[0]
             else:
-                valid_counterfactuals_i = counterfactuals_i[valid_idx]
-                n_counterfactuals_i = valid_counterfactuals_i.shape[0]
+                desired_class = infer_desired_class_for_ranking(
+                    predicted_logits[valid_idx], original_classes[i]
+                )
 
-                # Calculate desired class based on NUN
-                if nuns[i] is not None:
-                    desired_class = np.argmax(model.predict(np.expand_dims(nuns[i], axis=0), verbose=0), axis=1)[0]
-                else:
-                    predicted_cf_classes = np.argmax(model.predict(valid_counterfactuals_i, verbose=0), axis=1)
-                    vals, counts = np.unique(predicted_cf_classes, return_counts=True)
-                    index = np.argmax(counts)
-                    desired_class = vals[index]
+            # Calculate predicted probabilities
+            desired_predicted_probs = predicted_logits[valid_idx, desired_class]
 
-                # Calculate predicted probabilities
-                desired_predicted_probs = predicted_logits[:, desired_class]
+            # Use the same change-mask logic as the main metric evaluation.
+            change_masks = np.stack(
+                [
+                    calculate_change_mask(x_orig_i, cf, x_nun=nuns[i], verbose=0)
+                    for cf in valid_counterfactuals_i
+                ],
+                axis=0,
+            )
+            sparsity = change_masks.sum(axis=(1, 2)) / (length * n_channels)
 
-                # Get change mask (L0)
-                change_masks = thresholded_change_mask(x_orig_i, valid_counterfactuals_i)
-                sparsity = change_masks.sum(axis=(1, 2)) / (length * n_channels)
+            # Subsequences
+            subsequences = np.count_nonzero(np.diff(change_masks, prepend=0, axis=1) == 1, axis=(1, 2))
+            subsequences_pct = subsequences / ((length * n_channels) / 2)
 
-                # Subsequences
-                subsequences = np.count_nonzero(np.diff(change_masks, prepend=0, axis=1) == 1, axis=(1, 2))
-                feature_avg_subsequences = subsequences / n_channels
-                subsequences_pct = feature_avg_subsequences / (length // 2)
+            # Calculate outlier scores
+            if outlier_calculator is not None:
+                aux_outlier_scores = outlier_calculator.get_outlier_scores(valid_counterfactuals_i)
+                aux_increase_outlier_score = aux_outlier_scores - outlier_calculator.get_outlier_scores(x_orig_i)[0]
+            else:
+                aux_increase_outlier_score = np.zeros((n_counterfactuals_i, 1))
+            aux_increase_outlier_score[aux_increase_outlier_score < 0] = 0
+            l2_proximity = np.linalg.norm(
+                (valid_counterfactuals_i - x_orig_i).reshape(n_counterfactuals_i, -1),
+                ord=2,
+                axis=1,
+            )
 
-                # Calculate outlier scores
-                if outlier_calculator is not None:
-                    aux_outlier_scores = outlier_calculator.get_outlier_scores(valid_counterfactuals_i)
-                    aux_increase_outlier_score = aux_outlier_scores - outlier_calculator.get_outlier_scores(x_orig_i)[0]
-                else:
-                    aux_increase_outlier_score = np.zeros((n_counterfactuals_i, 1))
-                aux_increase_outlier_score[aux_increase_outlier_score < 0] = 0
-
-                # Calculate objectives dict
-                sample_objectives_dict = {
-                    "valids": valids,
-                    "desired_class_prob": desired_predicted_probs,
-                    "sparsity": sparsity,
-                    "subsequences": subsequences_pct,
-                    "IoS": aux_increase_outlier_score,
-                    "execution_time": execution_times[i]
-                }
+            # Calculate objectives dict
+            sample_objectives_dict = {
+                "valids": valids,
+                "desired_class_prob": desired_predicted_probs,
+                "sparsity": sparsity,
+                "subsequences": subsequences_pct,
+                "IoS": aux_increase_outlier_score,
+                "L2": l2_proximity,
+                "execution_time": execution_times[i]
+            }
         # Append to list
         all_objectives_list.append(sample_objectives_dict)
     return all_objectives_list
+
+
+def objective_dict_to_minimization_matrix(sample_objectives_dict):
+    sparsity = np.asarray(sample_objectives_dict["sparsity"]).reshape(-1)
+    subsequences = np.asarray(sample_objectives_dict["subsequences"]).reshape(-1)
+    ios = np.asarray(sample_objectives_dict["IoS"]).reshape(-1)
+    l2 = np.asarray(sample_objectives_dict["L2"]).reshape(-1)
+
+    if sparsity.size == 0:
+        return np.empty((0, 4), dtype=float)
+
+    valid_mask = (
+        np.isfinite(sparsity)
+        & np.isfinite(subsequences)
+        & np.isfinite(ios)
+        & np.isfinite(l2)
+    )
+    if not np.any(valid_mask):
+        return np.empty((0, 4), dtype=float)
+
+    return np.column_stack(
+        [
+            sparsity[valid_mask],
+            subsequences[valid_mask],
+            ios[valid_mask],
+            l2[valid_mask],
+        ]
+    )
+
+
+def dominates_minimization(point_a, point_b, atol=1e-12):
+    return np.all(point_a <= point_b + atol) and np.any(point_a < point_b - atol)
+
+
+def filter_nondominated_minimization(points, atol=1e-12):
+    points = np.asarray(points, dtype=float)
+    if points.size == 0:
+        return np.empty((0, 0), dtype=float) if points.ndim == 1 else points.reshape(0, points.shape[-1])
+
+    keep_mask = np.ones(points.shape[0], dtype=bool)
+    for i in range(points.shape[0]):
+        if not keep_mask[i]:
+            continue
+        for j in range(points.shape[0]):
+            if i == j or not keep_mask[j]:
+                continue
+            if dominates_minimization(points[j], points[i], atol=atol):
+                keep_mask[i] = False
+                break
+    return points[keep_mask]
+
+
+def normalize_objective_fronts(fronts, atol=1e-12):
+    non_empty_fronts = [front for front in fronts if front.size > 0]
+    if len(non_empty_fronts) == 0:
+        return fronts, None, None
+
+    combined = np.vstack(non_empty_fronts)
+    min_values = combined.min(axis=0)
+    max_values = combined.max(axis=0)
+    ranges = max_values - min_values
+    ranges[ranges <= atol] = 1.0
+
+    normalized_fronts = []
+    for front in fronts:
+        if front.size == 0:
+            normalized_fronts.append(front.copy())
+        else:
+            normalized_fronts.append((front - min_values) / ranges)
+    return normalized_fronts, min_values, ranges
+
+
+def hypervolume_minimization(points, reference_point):
+    points = np.asarray(points, dtype=float)
+    reference_point = np.asarray(reference_point, dtype=float)
+
+    if points.size == 0:
+        return 0.0
+
+    valid_mask = np.all(points <= reference_point, axis=1)
+    points = points[valid_mask]
+    if points.size == 0:
+        return 0.0
+
+    points = filter_nondominated_minimization(points)
+
+    def _recursive(front, ref):
+        if front.shape[0] == 0:
+            return 0.0
+        if front.shape[1] == 1:
+            return max(ref[0] - np.min(front[:, 0]), 0.0)
+
+        order = np.argsort(front[:, 0])
+        front = front[order]
+        volume = 0.0
+        previous = ref[0]
+
+        while front.shape[0] > 0:
+            current = front[-1, 0]
+            width = previous - current
+            if width > 0:
+                volume += width * _recursive(front[:, 1:], ref[1:])
+                previous = current
+            front = front[front[:, 0] < current]
+
+        return volume
+
+    return float(_recursive(points, reference_point))
+
+
+def empirical_coverage(front_a, front_b, atol=1e-12):
+    front_a = np.asarray(front_a, dtype=float)
+    front_b = np.asarray(front_b, dtype=float)
+
+    if front_b.size == 0:
+        return np.nan
+    if front_a.size == 0:
+        return 0.0
+
+    dominated_count = 0
+    for point_b in front_b:
+        if any(dominates_minimization(point_a, point_b, atol=atol) for point_a in front_a):
+            dominated_count += 1
+    return dominated_count / front_b.shape[0]
+
+
+def igd_plus(approximation_front, reference_front):
+    approximation_front = np.asarray(approximation_front, dtype=float)
+    reference_front = np.asarray(reference_front, dtype=float)
+
+    if reference_front.size == 0:
+        return np.nan
+    if approximation_front.size == 0:
+        return np.inf
+
+    distances = []
+    for reference_point in reference_front:
+        delta = np.maximum(approximation_front - reference_point, 0.0)
+        dists = np.linalg.norm(delta, axis=1)
+        distances.append(dists.min())
+    return float(np.mean(distances))
+
+
+def compare_pareto_fronts(front_a, front_b, hv_reference_point=None, normalize=True, hv_ref_margin=0.1):
+    front_a = filter_nondominated_minimization(np.asarray(front_a, dtype=float))
+    front_b = filter_nondominated_minimization(np.asarray(front_b, dtype=float))
+
+    if normalize:
+        [front_a, front_b], _, _ = normalize_objective_fronts([front_a, front_b])
+
+    non_empty_fronts = [front for front in [front_a, front_b] if front.size > 0]
+    if len(non_empty_fronts) == 0:
+        return {
+            "hypervolume_a": np.nan,
+            "hypervolume_b": np.nan,
+            "empirical_coverage_a_over_b": np.nan,
+            "empirical_coverage_b_over_a": np.nan,
+            "igd_plus_a": np.nan,
+            "igd_plus_b": np.nan,
+            "n_points_a": 0,
+            "n_points_b": 0,
+            "n_points_reference": 0,
+        }
+
+    union_front = filter_nondominated_minimization(np.vstack(non_empty_fronts))
+    if hv_reference_point is None:
+        reference_point = np.ones(union_front.shape[1], dtype=float) + hv_ref_margin
+    else:
+        reference_point = np.asarray(hv_reference_point, dtype=float)
+
+    return {
+        "hypervolume_a": hypervolume_minimization(front_a, reference_point),
+        "hypervolume_b": hypervolume_minimization(front_b, reference_point),
+        "empirical_coverage_a_over_b": empirical_coverage(front_a, front_b),
+        "empirical_coverage_b_over_a": empirical_coverage(front_b, front_a),
+        "igd_plus_a": igd_plus(front_a, union_front),
+        "igd_plus_b": igd_plus(front_b, union_front),
+        "n_points_a": int(front_a.shape[0]),
+        "n_points_b": int(front_b.shape[0]),
+        "n_points_reference": int(union_front.shape[0]),
+    }
 
 
 def obtain_cfs_objectives(dataset, methods, model_to_explain,
@@ -500,6 +724,7 @@ def obtain_cfs_objectives(dataset, methods, model_to_explain,
     valid_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in desired_cf_solution_dirs if os.path.isfile(f'./experiments/results/{dataset}/{model_to_explain}/{cf_sol_dir}/counterfactuals.pickle')]
     method_cfs_dataset_dict = {}
     method_objectives_dataset_dict = {}
+    method_test_indexes_dict = {}
     common_test_indexes = list(range(len(X_test)))
     for i, method_dir_name in enumerate(valid_cf_solution_dirs):
         # Load solution cfs
@@ -527,8 +752,143 @@ def obtain_cfs_objectives(dataset, methods, model_to_explain,
         )
         method_objectives_dataset_dict[method_name] = method_objectives
         method_cfs_dataset_dict[method_name] = method_cfs
+        method_test_indexes_dict[method_name] = np.array(method_test_indexes)
+        common_test_indexes = list(set(method_test_indexes).intersection(common_test_indexes))
+        common_test_indexes.sort()
 
-    return method_objectives_dataset_dict, method_cfs_dataset_dict, common_test_indexes
+    return method_objectives_dataset_dict, method_cfs_dataset_dict, method_test_indexes_dict, common_test_indexes
+
+
+def calculate_pareto_front_metrics_for_dataset(
+    dataset,
+    methods,
+    model_to_explain,
+    data_tuple,
+    original_classes,
+    model,
+    outlier_calculator,
+    possible_nuns,
+    plausibility_objective="AE",
+    normalize=True,
+    hv_reference_point=None,
+    hv_ref_margin=0.1,
+):
+    if isinstance(outlier_calculator, dict):
+        if plausibility_objective not in outlier_calculator:
+            raise ValueError(
+                f'Plausibility calculator "{plausibility_objective}" not found. '
+                f'Available keys: {sorted(outlier_calculator.keys())}'
+            )
+        selected_outlier_calculator = outlier_calculator[plausibility_objective]
+    else:
+        selected_outlier_calculator = outlier_calculator
+
+    (
+        method_objectives_dataset_dict,
+        method_cfs_dataset_dict,
+        method_test_indexes_dict,
+        common_test_indexes,
+    ) = obtain_cfs_objectives(
+        dataset,
+        methods,
+        model_to_explain,
+        data_tuple,
+        original_classes,
+        model,
+        selected_outlier_calculator,
+        possible_nuns,
+    )
+
+    pairwise_rows = []
+    method_names = list(method_objectives_dataset_dict.keys())
+    for method_a, method_b in combinations(method_names, 2):
+        index_to_objectives_a = {
+            int(sample_idx): method_objectives_dataset_dict[method_a][i]
+            for i, sample_idx in enumerate(method_test_indexes_dict[method_a])
+        }
+        index_to_objectives_b = {
+            int(sample_idx): method_objectives_dataset_dict[method_b][i]
+            for i, sample_idx in enumerate(method_test_indexes_dict[method_b])
+        }
+        shared_indexes = sorted(set(index_to_objectives_a.keys()).intersection(index_to_objectives_b.keys()))
+
+        for sample_idx in shared_indexes:
+            front_a = objective_dict_to_minimization_matrix(index_to_objectives_a[sample_idx])
+            front_b = objective_dict_to_minimization_matrix(index_to_objectives_b[sample_idx])
+            metrics = compare_pareto_fronts(
+                front_a,
+                front_b,
+                hv_reference_point=hv_reference_point,
+                normalize=normalize,
+                hv_ref_margin=hv_ref_margin,
+            )
+            pairwise_rows.append(
+                {
+                    "dataset": dataset,
+                    "sample_idx": int(sample_idx),
+                    "method_a": method_a,
+                    "method_b": method_b,
+                    **metrics,
+                }
+            )
+
+    pairwise_df = pd.DataFrame(pairwise_rows)
+    if pairwise_df.empty:
+        summary_df = pd.DataFrame()
+        pairwise_valid_df = pd.DataFrame()
+        summary_valid_df = pd.DataFrame()
+    else:
+        summary_df = (
+            pairwise_df.groupby(["dataset", "method_a", "method_b"])
+            .agg(
+                hypervolume_a_mean=("hypervolume_a", "mean"),
+                hypervolume_b_mean=("hypervolume_b", "mean"),
+                empirical_coverage_a_over_b_mean=("empirical_coverage_a_over_b", "mean"),
+                empirical_coverage_b_over_a_mean=("empirical_coverage_b_over_a", "mean"),
+                igd_plus_a_mean=("igd_plus_a", "mean"),
+                igd_plus_b_mean=("igd_plus_b", "mean"),
+                n_points_a_mean=("n_points_a", "mean"),
+                n_points_b_mean=("n_points_b", "mean"),
+                n_points_reference_mean=("n_points_reference", "mean"),
+                valid_front_success_a=("n_points_a", lambda x: np.mean(np.asarray(x) > 0)),
+                valid_front_success_b=("n_points_b", lambda x: np.mean(np.asarray(x) > 0)),
+                n_shared_samples=("sample_idx", "count"),
+            )
+            .reset_index()
+        )
+        pairwise_valid_df = pairwise_df[
+            (pairwise_df["n_points_a"] > 0) & (pairwise_df["n_points_b"] > 0)
+        ].copy()
+        if pairwise_valid_df.empty:
+            summary_valid_df = pd.DataFrame()
+        else:
+            summary_valid_df = (
+                pairwise_valid_df.groupby(["dataset", "method_a", "method_b"])
+                .agg(
+                    hypervolume_a_mean=("hypervolume_a", "mean"),
+                    hypervolume_b_mean=("hypervolume_b", "mean"),
+                    empirical_coverage_a_over_b_mean=("empirical_coverage_a_over_b", "mean"),
+                    empirical_coverage_b_over_a_mean=("empirical_coverage_b_over_a", "mean"),
+                    igd_plus_a_mean=("igd_plus_a", "mean"),
+                    igd_plus_b_mean=("igd_plus_b", "mean"),
+                    n_points_a_mean=("n_points_a", "mean"),
+                    n_points_b_mean=("n_points_b", "mean"),
+                    n_points_reference_mean=("n_points_reference", "mean"),
+                    n_shared_samples=("sample_idx", "count"),
+                )
+                .reset_index()
+            )
+
+    return {
+        "summary_df": summary_df,
+        "summary_valid_df": summary_valid_df,
+        "pairwise_df": pairwise_df,
+        "pairwise_valid_df": pairwise_valid_df,
+        "method_objectives_dataset_dict": method_objectives_dataset_dict,
+        "method_cfs_dataset_dict": method_cfs_dataset_dict,
+        "method_test_indexes_dict": method_test_indexes_dict,
+        "common_test_indexes": common_test_indexes,
+    }
 
 
 def calculate_method_valids(model, X_test, counterfactuals, original_classes):
@@ -540,7 +900,8 @@ def calculate_method_valids(model, X_test, counterfactuals, original_classes):
     valids = []
     for i in tqdm(range(len(X_test))):
         # Predict counterfactual class probability
-        preds = model.predict(counterfactuals[i].reshape(-1, length, n_channels), verbose=0)
+        counterfactuals_i = ensure_cf_batch(counterfactuals[i], length, n_channels)
+        preds = model.predict(counterfactuals_i)
         pred_class = np.argmax(preds, axis=1)[0]
 
         # Valids
@@ -587,13 +948,16 @@ def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, s
     else:
         desired_classes = None
     for i in tqdm(range(len(X_test))):
-        counterfactuals_i = counterfactuals[i]
+        counterfactuals_i = ensure_cf_batch(counterfactuals[i], length, n_channels)
         x_orig_i = X_test[i]
         # If there are multiple counterfactuals apply mo_weights
         if counterfactuals_i.shape[0] > 1:
-            desired_class = desired_classes[i]
             # Sort by objective weights and take the best
             predicted_probs = model_wrapper.predict(counterfactuals_i)
+            preferred_class = desired_classes[i] if desired_classes is not None else None
+            desired_class = infer_desired_class_for_ranking(
+                predicted_probs, original_classes[i], preferred_class=preferred_class
+            )
             # Get outlier scores from AE to get the best CF
             if outlier_calculators is not None:
                 aux_outlier_scores = outlier_calculators["AE"].get_outlier_scores(counterfactuals_i)

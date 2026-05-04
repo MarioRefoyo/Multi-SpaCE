@@ -13,6 +13,7 @@ class TSEvoCF(CounterfactualMethod):
         x_reference,
         y_reference,
         transformer="authentic_opposing_information",
+        orig=False,
         epochs=500,
         verbose=0,
     ):
@@ -20,6 +21,7 @@ class TSEvoCF(CounterfactualMethod):
         self.x_reference = x_reference
         self.y_reference = y_reference
         self.transformer = transformer
+        self.orig = orig
         self.epochs = epochs
         self.verbose = verbose
         self.backend = "PYT" if model_wrapper.backend == "torch" else "TF"
@@ -67,13 +69,19 @@ class TSEvoCF(CounterfactualMethod):
         )
 
         try:
-            explanations, output = optimizer.run()
-            x_cf = np.swapaxes(np.array(explanations)[0], 1, 0)
+            explanations, outputs = optimizer.run(orig=self.orig)
+            pareto_cfs = np.asarray(
+                [np.swapaxes(np.asarray(explanation), 1, 0) for explanation in explanations]
+            )
+            if pareto_cfs.ndim == 2:
+                pareto_cfs = np.expand_dims(pareto_cfs, axis=0)
+            x_cf = pareto_cfs[0]
             if not squeeze_output:
                 x_cf = np.expand_dims(x_cf, axis=0)
         except Exception as exc:
             print(f"TSEvo failed for sample: {exc}")
-            x_cf = copy.deepcopy(x_orig)
-            output = original_output
+            x_cf = copy.deepcopy(x_input)
+            pareto_cfs = copy.deepcopy(x_input)
+            outputs = np.expand_dims(original_output, axis=0)
 
-        return {"cf": x_cf, "output": output}
+        return {"cf": x_cf, "cfs": pareto_cfs, "output": outputs[0], "outputs": outputs}

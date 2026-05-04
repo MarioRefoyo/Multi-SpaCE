@@ -29,25 +29,31 @@ def configure_tensorflow_memory_growth():
 configure_tensorflow_memory_growth()
 
 
-"""DATASETS = [
+DATASETS = [
     'BasicMotions', 
-    # 'NATOPS', 'UWaveGestureLibrary', 
+    'NATOPS', 'UWaveGestureLibrary',
     'Cricket',
     'ArticularyWordRecognition', 'Epilepsy',
     'PenDigits',
     'PEMS-SF',
     'RacketSports', 'SelfRegulationSCP1'
-]"""
-DATASETS = [
+]
+"""DATASETS = [
     'ECG200', 'Gunpoint', 'Coffee',
     'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
     'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso',
     'NonInvasiveFatalECGThorax2', 'CBF',
+]"""
+DATASETS = ['CBF', 'Coffee', 'FordA', 'Gunpoint']
+DATASETS = [
+    # 'Cricket',
+    'ArticularyWordRecognition', 'Epilepsy',
+    'PenDigits',
+    # 'PEMS-SF',
+    'RacketSports', 'SelfRegulationSCP1'
 ]
 
-DATASETS = ['CBF', 'Coffee', 'FordA', 'Gunpoint', 'NATOPS', 'UWaveGestureLibrary']
-
-ADDITIONAL_SUBSAMPLE_SUBSET = None
+ADDITIONAL_SUBSAMPLE_SUBSET = 20
 PARAMS_PATH = "experiments/params_cf/baseline_tsevo.json"
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
 MULTIPROCESSING = True
@@ -82,6 +88,7 @@ def get_counterfactual_worker(sample_dict):
         x_train,
         y_reference,
         transformer=params["transformer"],
+        orig=params.get("orig", False),
         epochs=params["epochs"],
         verbose=params["verbose"],
     )
@@ -137,6 +144,7 @@ def experiment_dataset(dataset, exp_name, params):
             x_train,
             y_pred_train,
             transformer=params["transformer"],
+            orig=params.get("orig", False),
             epochs=params["epochs"],
             verbose=params["verbose"],
         )
@@ -175,7 +183,10 @@ if __name__ == "__main__":
             exist_ok=True,
         )
         print(f"Starting experiment for dataset {dataset}...")
-        all_params["additional_subsample_subset"] = ADDITIONAL_SUBSAMPLE_SUBSET
+
+        # if (dataset in ["PEMS-SF", "Cricket", "HandOutlines"]) and (ADDITIONAL_SUBSAMPLE_SUBSET is not None):
+        if ADDITIONAL_SUBSAMPLE_SUBSET is not None:
+            all_params["additional_subsample_subset"] = ADDITIONAL_SUBSAMPLE_SUBSET
         experiment_dataset(dataset, exp_name, all_params)
     print("Finished")
 
