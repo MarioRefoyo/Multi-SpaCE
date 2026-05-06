@@ -87,7 +87,7 @@ class MultiSubSpaCECF(CounterfactualMethod):
 
         return counterfactual_mask, x_cfs, best_avg_fitness_evolution
 
-    def generate_counterfactual_specific(self, x_orig, desired_target=None, nun_example=None):
+    def generate_counterfactual_specific(self, x_orig, desired_target=None, nun_example=None, y_true_orig=None):
         # Init values
         fitness_evolution = []
 
@@ -218,7 +218,7 @@ class MultiSubSpaCECFv2(CounterfactualMethod):
 
         return counterfactual_mask, x_cfs, best_avg_fitness_evolution
 
-    def generate_counterfactual_specific(self, x_orig, desired_target=None, nun_example=None):
+    def generate_counterfactual_specific(self, x_orig, desired_target=None, nun_example=None, y_true_orig=None):
         fitness_evolution = []
 
         heatmap_x_orig = self.fi_method.calculate_feature_importance(x_orig)

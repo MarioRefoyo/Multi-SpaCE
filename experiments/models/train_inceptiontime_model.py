@@ -108,6 +108,8 @@ DATASETS = [
 ]
 DATASETS = ['Coffee', 'CinCECGTorso']"""
 
+DATASETS = ["ptbxl"]
+
 PARAMS_PATH = 'experiments/params_model_training/inceptiontime_noscaling.json'
 
 

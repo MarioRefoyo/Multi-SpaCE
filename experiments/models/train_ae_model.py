@@ -84,8 +84,8 @@ DATASETS = [
     'Wafer',
     'Yoga', # Doubt (0.79)
 ]
-DATASETS = ['ECG200', 'Gunpoint', 'Chinatown', 'Coffee', 'FordA']
-PARAMS_PATH = 'experiments/params_model_training/ae_basic_train_scaling.json'
+DATASETS = ["ptbxl"]
+PARAMS_PATH = 'experiments/params_model_training/ae_basic_train_ptbxl.json'
 
 
 def get_permutation_reconstruction_scores(ae, X_train, X_test, y_train, y_test):
@@ -198,9 +198,10 @@ def train_ae_experiment(dataset, exp_name, exp_hash, params):
     test_mae = np.mean(np.abs(X_test - X_test_reconst))
     print(f"Train MAE: {train_mae:.2f} --- Test MAE: {test_mae:.2f}")
     recons_errors_df = get_permutation_reconstruction_scores(ae, X_train, X_test, y_train, y_test)
-    plt.figure()
-    recons_errors_df.hist(layout=(3, 1), sharex=True, sharey=True)
-    plt.savefig(f"{results_path}/reconstruction_test.png")
+    hist_axes = recons_errors_df.hist(layout=(3, 1), sharex=True, sharey=True)
+    hist_fig = hist_axes[0, 0].figure
+    hist_fig.savefig(f"{results_path}/reconstruction_test.png")
+    plt.close(hist_fig)
     result_metrics = {
         'test_recons_base': recons_errors_df['base'].median(),
         '+test_recons_perm_same': recons_errors_df['perm_same'].median() - recons_errors_df['base'].median(),
@@ -219,15 +220,16 @@ def train_ae_experiment(dataset, exp_name, exp_hash, params):
     # Export sample reconstructions
     n_features = X_test.shape[2]
     for i in np.random.choice(len(X_test), 10):
-        fig = plt.figure(figsize=(8, 6))
-        f, axs = plt.subplots(n_features, 1)
-        if n_features==1:
+        fig, axs = plt.subplots(n_features, 1, figsize=(8, 6))
+        if n_features == 1:
             axs = [axs]
         for j in range(n_features):
             axs[j].plot(list(range(X_test.shape[1])), X_test[i, :, j].flatten())
             axs[j].plot(list(range(X_test.shape[1])), X_test_reconst[i, :, j].flatten())
-        plt.title(f"Instance: {i}, Label: {y_test[i]}")
-        plt.savefig(f"{results_path}/reconstruction_{i}.png")
+        fig.suptitle(f"Instance: {i}, Label: {y_test[i]}")
+        fig.tight_layout()
+        fig.savefig(f"{results_path}/reconstruction_{i}.png")
+        plt.close(fig)
 
     # Create Outlier calculator and store it
     outlier_calculator = AEOutlierCalculator(ae, X_train)
@@ -237,7 +239,8 @@ def train_ae_experiment(dataset, exp_name, exp_hash, params):
     # Export loss training loss evolution
     fig, (ax1) = plt.subplots(1, 1)
     pd.DataFrame(training_history.history)[['loss', 'val_loss']].plot(ax=ax1)
-    plt.savefig(f"{results_path}/loss_curve.png")
+    fig.savefig(f"{results_path}/loss_curve.png")
+    plt.close(fig)
 
 
 def select_best_model(dataset, exp_name):

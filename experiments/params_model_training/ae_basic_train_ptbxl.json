@@ -3,7 +3,7 @@
 
   "seed": [42],
 
-  "model_type": ["ae-cnn-shallow", "ae-cnn-simple", "ae-cnn-intermediate", "ae-cnn-complex"],
+  "model_type": ["ae-cnn-complex"],
   "scaling": ["none"],
   "compression_rate": [0.0625, 0.125],
   "temporal_strides": 2,

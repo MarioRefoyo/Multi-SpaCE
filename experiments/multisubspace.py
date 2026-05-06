@@ -107,6 +107,7 @@ def get_counterfactual_worker(sample_dict):
     x_orig_samples_worker = sample_dict["x_orig_samples"]
     nun_examples_worker = sample_dict["nun_examples"]
     desired_targets_worker = sample_dict["desired_targets"]
+    y_true_orig_worker = sample_dict["y_true_orig"]
     n_classes = sample_dict["n_classes"]
     ts_length = x_orig_samples_worker.shape[1]
     n_channels = x_orig_samples_worker.shape[2]
@@ -169,7 +170,12 @@ def get_counterfactual_worker(sample_dict):
         x_orig_worker = x_orig_samples_worker[i]
         nun_example_worker = nun_examples_worker[i]
         desired_target_worker = desired_targets_worker[i]
-        result = cf_explainer.generate_counterfactual(x_orig_worker, desired_target_worker, nun_example=nun_example_worker)
+        result = cf_explainer.generate_counterfactual(
+            x_orig_worker,
+            desired_target_worker,
+            nun_example=nun_example_worker,
+            y_true_orig=y_true_orig_worker[i],
+        )
         results.append(result)
 
     # Store results of cf in list
@@ -223,6 +229,7 @@ def experiment_dataset(dataset, exp_name, params, experiment_family):
             x_orig_samples = X_test[i:i + THREAD_SAMPLES]
             nun_examples = nuns[i:i + THREAD_SAMPLES]
             desired_targets = desired_classes[i:i + THREAD_SAMPLES]
+            y_true_orig = y_test[i:i + THREAD_SAMPLES]
 
             sample_dict = {
                 "dataset": dataset,
@@ -234,6 +241,7 @@ def experiment_dataset(dataset, exp_name, params, experiment_family):
                 "x_orig_samples": x_orig_samples,
                 "nun_examples": nun_examples,
                 "desired_targets": desired_targets,
+                "y_true_orig": y_true_orig,
                 "n_classes": n_classes
             }
             samples.append(sample_dict)

@@ -32,19 +32,38 @@ class OutlierCalculator(ABC):
 class AEOutlierCalculator(OutlierCalculator):
     def __init__(self, model, calibration_data):
         super().__init__(model, calibration_data)
-
-        @tf.function(input_signature=[tf.TensorSpec(shape=[None, None, None], dtype=tf.float32)])
-        def infer(x):
-            return self.model(x, training=False)
-        self._infer = infer
+        self._build_infer()
 
         # Calibrate to get outlier score as a number between 0 and 1
         calibration_scores = self._get_raw_outlier_scores(calibration_data)
         self.min_score = min(0, calibration_scores.min())
         self.max_score = calibration_scores.max()
 
+    def _build_infer(self):
+        model = self.model
+
+        @tf.function(
+            input_signature=[
+                tf.TensorSpec(shape=[None, self.length, self.n_channels], dtype=tf.float32)
+            ],
+            reduce_retracing=True,
+        )
+        def infer(x):
+            return model(x, training=False)
+
+        self._infer = infer
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop("_infer", None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._build_infer()
+
     def _get_raw_outlier_scores(self, data):
-        data = data.reshape(-1, self.length, self.n_channels)
+        data = np.asarray(data, dtype=np.float32).reshape(-1, self.length, self.n_channels)
         data_reconstruction = self._infer(data)
         reconstruction_errors = np.mean(np.abs(data - data_reconstruction), axis=(1, 2))
         return reconstruction_errors

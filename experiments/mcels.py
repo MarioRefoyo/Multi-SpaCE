@@ -17,13 +17,13 @@ from experiments.results.results_concatenator import concatenate_result_files
 from methods.MCELSCF import MCELSCF
 
 DATASETS = [
-    'BasicMotions',
-    'NATOPS',
-   # 'UWaveGestureLibrary', 'Cricket',
-   # 'ArticularyWordRecognition', 'Epilepsy',
-   # 'PenDigits',
-    
-   # 'RacketSports',
+    # 'BasicMotions',
+    # 'NATOPS',
+    # 'UWaveGestureLibrary', 'Cricket',
+    # 'ArticularyWordRecognition', 'Epilepsy',
+    # 'PenDigits',
+
+    'RacketSports',
     'SelfRegulationSCP1',
     'PEMS-SF',
 ]
@@ -40,8 +40,8 @@ PARAMS_PATH = "experiments/params_cf/baseline_mcels.json"
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
 MULTIPROCESSING = True
 I_START = 0
-THREAD_SAMPLES = 5
-POOL_SIZE = 20
+THREAD_SAMPLES = 100
+POOL_SIZE = 1
 MP_START_METHOD = "spawn"
 
 

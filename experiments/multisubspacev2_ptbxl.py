@@ -36,27 +36,10 @@ from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, No
 from experiments.experiment_utils import prepare_experiment, load_model
 
 
-DATASETS = [
-    'BasicMotions',
-    'NATOPS',
-    'UWaveGestureLibrary', # 'Cricket',
-    'ArticularyWordRecognition', 'Epilepsy',
-    'PenDigits',
-    
-    'RacketSports',
-    'SelfRegulationSCP1',
-    # 'PEMS-SF',
-]
-
-"""DATASETS = [
-    'ECG200', 'Gunpoint', 'Coffee',
-    'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
-    'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso',
-    'NonInvasiveFatalECGThorax2', 'CBF',
-]"""
+DATASETS = ["ptbxl"]
 
 
-EXPERIMENT_FAMILY = 'multisubspace_v2_pop_iter'
+EXPERIMENT_FAMILY = 'multisubspace_v2_ptbxl'
 PARAMS_PATH = f'experiments/params_cf/{EXPERIMENT_FAMILY}.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
 OC_EXPERIMENT_NAME = 'ae_basic_train'
@@ -69,8 +52,8 @@ METRIC_DIRECTIONS = DEFAULT_METRIC_DIRECTIONS
 
 MULTIPROCESSING = True
 I_START = 0
-THREAD_SAMPLES = 5
-POOL_SIZE = 20
+THREAD_SAMPLES = 100
+POOL_SIZE = 1
 MP_START_METHOD = "spawn"
 
 
@@ -195,9 +178,13 @@ def get_counterfactual_worker(sample_dict):
 def experiment_dataset(dataset, exp_name, params, experiment_family):
     result_path = Path("experiments/results") / dataset / MODEL_TO_EXPLAIN_EXPERIMENT_NAME / experiment_family / exp_name
     print(f"Result path: {result_path}")
+    result_path.mkdir(parents=True, exist_ok=True)
 
     X_train, y_train, X_test, y_test, subset_idx, n_classes, model_wrapper, y_pred_train, y_pred_test = prepare_experiment(
         dataset, params, MODEL_TO_EXPLAIN_EXPERIMENT_NAME)
+
+    np.save(result_path / "x_test_selected.npy", X_test)
+    np.save(result_path / "x_test_selected_indices.npy", subset_idx)
 
     # Get the NUNs
     nun_strategy = get_nun_strategy(params)
