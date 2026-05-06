@@ -54,12 +54,14 @@ def load_parameters_from_json(json_filename):
     return params
 
 
-def store_partial_cfs(results, s_start, s_end, dataset, model_to_explain_name, file_suffix_name):
-    # Create folder for dataset if it does not exist
-    os.makedirs(f'./experiments/results/{dataset}/', exist_ok=True)
-    os.makedirs(f'./experiments/results/{dataset}/{model_to_explain_name}/', exist_ok=True)
-    os.makedirs(f'./experiments/results/{dataset}/{model_to_explain_name}/{file_suffix_name}/', exist_ok=True)
-    with open(f'./experiments/results/{dataset}/{model_to_explain_name}/{file_suffix_name}/{file_suffix_name}_{s_start:04d}-{s_end:04d}.pickle', 'wb') as f:
+def store_partial_cfs(results, s_start, s_end, dataset, model_to_explain_name, file_suffix_name, experiment_family=None):
+    result_path_parts = ['./experiments/results', dataset, model_to_explain_name]
+    if experiment_family is not None:
+        result_path_parts.append(experiment_family)
+    result_path_parts.append(file_suffix_name)
+    result_path = os.path.join(*result_path_parts)
+    os.makedirs(result_path, exist_ok=True)
+    with open(os.path.join(result_path, f'{file_suffix_name}_{s_start:04d}-{s_end:04d}.pickle'), 'wb') as f:
         pickle.dump(results, f, pickle.HIGHEST_PROTOCOL)
 
 

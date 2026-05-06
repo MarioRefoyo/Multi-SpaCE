@@ -18,6 +18,46 @@ from methods.MultiSubSpaCE.FitnessFunctions import fitness_function_mo, fitness_
 from experiments.experiment_utils import load_model
 
 
+def get_results_dir(dataset, model_to_explain, experiment_family=None):
+    results_dir = Path("./experiments/results") / dataset / model_to_explain
+    if experiment_family is not None:
+        results_dir = results_dir / experiment_family
+    return results_dir
+
+
+def find_cf_solution_dirs(results_dir, methods):
+    """Find method/hash folders in flat and experiment-family result layouts."""
+    if not results_dir.is_dir():
+        return []
+
+    cf_solution_dirs = []
+    for path in sorted(results_dir.iterdir()):
+        if not path.is_dir():
+            continue
+
+        # Flat layout: results/<dataset>/<model>/<hash>
+        cf_solution_dirs.append(path.relative_to(results_dir))
+
+        # Family layout: results/<dataset>/<model>/<family>/<hash>
+        for child_path in sorted(path.iterdir()):
+            if child_path.is_dir():
+                cf_solution_dirs.append(child_path.relative_to(results_dir))
+
+    valid_cf_solution_dirs = []
+    for rel_path in cf_solution_dirs:
+        method_key = rel_path.name
+        method_results_dir = results_dir / rel_path
+        if method_key not in methods:
+            continue
+        if not (method_results_dir / 'counterfactuals.pickle').is_file():
+            continue
+        if not (method_results_dir / 'params.json').is_file():
+            continue
+        valid_cf_solution_dirs.append(rel_path)
+
+    return valid_cf_solution_dirs
+
+
 def get_start_end_subsequence_positions(orig_change_mask):
     # ----- Get potential extension locations
     ones_mask = np.in1d(orig_change_mask, 1).reshape(orig_change_mask.shape)
@@ -305,18 +345,17 @@ def build_dataset_metrics_output(results_df, dataset, method_cfs_dataset, common
 
 
 def process_method_dir(args):
-    dataset, model_to_explain, method_dir_name, methods, model_wrapper, outlier_calculators, X_test, original_classes, possible_nuns, mo_weights, order = args
+    dataset, method_dir_name, method_results_dir, methods, model_wrapper, outlier_calculators, X_test, original_classes, possible_nuns, mo_weights, order = args
     results_df = pd.DataFrame()
     method_cfs_dataset = {}
 
     # Load solution cfs
-    with open(f'./experiments/results/{dataset}/{model_to_explain}/{method_dir_name}/counterfactuals.pickle',
-              'rb') as f:
+    with open(method_results_dir / 'counterfactuals.pickle', 'rb') as f:
         print(method_dir_name)
         method_cfs = pickle.load(f)
 
     # Load params
-    with open(f'./experiments/results/{dataset}/{model_to_explain}/{method_dir_name}/params.json', 'r') as json_file:
+    with open(method_results_dir / 'params.json', 'r') as json_file:
         method_params = json.load(json_file)
         method_test_indexes = method_params["X_test_indexes"]
 
@@ -345,20 +384,18 @@ def process_method_dir(args):
 
 def calculate_metrics_for_dataset_mp(dataset, methods, model_to_explain,
                                      data_tuple, original_classes, model_wrapper, outlier_calculators, possible_nuns,
-                                     mo_weights=None, penalize_invalid=False, penalization_quantile=0.95):
+                                     mo_weights=None, penalize_invalid=False, penalization_quantile=0.95,
+                                     experiment_family=None):
     X_train, y_train, X_test, y_test = data_tuple
 
-    cf_solution_dirs = [fname for fname in os.listdir(f'./experiments/results/{dataset}/{model_to_explain}') if
-                        os.path.isdir(f'./experiments/results/{dataset}/{model_to_explain}/{fname}')]
-    desired_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in cf_solution_dirs if cf_sol_dir in methods.keys()]
-    valid_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in desired_cf_solution_dirs if os.path.isfile(
-        f'./experiments/results/{dataset}/{model_to_explain}/{cf_sol_dir}/counterfactuals.pickle')]
+    results_dir = get_results_dir(dataset, model_to_explain, experiment_family)
+    valid_cf_solution_dirs = find_cf_solution_dirs(results_dir, methods)
 
     # Prepare arguments for parallel processing
     args = [
-        (dataset, model_to_explain, method_dir_name, methods, model_wrapper, outlier_calculators, X_test,
+        (dataset, method_rel_path.name, results_dir / method_rel_path, methods, model_wrapper, outlier_calculators, X_test,
          original_classes, possible_nuns, mo_weights, i + 1)
-        for i, method_dir_name in enumerate(valid_cf_solution_dirs)
+        for i, method_rel_path in enumerate(valid_cf_solution_dirs)
     ]
 
     # Use multiprocessing pool to parallelize the processing of each method directory
@@ -387,22 +424,24 @@ def calculate_metrics_for_dataset_mp(dataset, methods, model_to_explain,
 
 def calculate_metrics_for_dataset(dataset, methods, model_to_explain,
                                   data_tuple, original_classes, model, outlier_calculators, possible_nuns,
-                                  mo_weights=None, penalize_invalid=False, penalization_quantile=0.95):
+                                  mo_weights=None, penalize_invalid=False, penalization_quantile=0.95,
+                                  experiment_family=None):
     X_train, y_train, X_test, y_test = data_tuple
 
     results_df = pd.DataFrame()
-    cf_solution_dirs = [fname for fname in os.listdir(f'./experiments/results/{dataset}/{model_to_explain}') if os.path.isdir(f'./experiments/results/{dataset}/{model_to_explain}/{fname}')]
-    desired_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in cf_solution_dirs if cf_sol_dir in methods.keys()]
-    valid_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in desired_cf_solution_dirs if os.path.isfile(f'./experiments/results/{dataset}/{model_to_explain}/{cf_sol_dir}/counterfactuals.pickle')]
+    results_dir = get_results_dir(dataset, model_to_explain, experiment_family)
+    valid_cf_solution_dirs = find_cf_solution_dirs(results_dir, methods)
     method_cfs_dataset = {}
     common_test_indexes = list(range(len(X_test)))
-    for i, method_dir_name in enumerate(valid_cf_solution_dirs):
+    for i, method_rel_path in enumerate(valid_cf_solution_dirs):
+        method_dir_name = method_rel_path.name
+        method_results_dir = results_dir / method_rel_path
         # Load solution cfs
-        with open(f'./experiments/results/{dataset}/{model_to_explain}/{method_dir_name}/counterfactuals.pickle', 'rb') as f:
-            print(method_dir_name)
+        with open(method_results_dir / 'counterfactuals.pickle', 'rb') as f:
+            print(method_rel_path)
             method_cfs = pickle.load(f)
         # Load params
-        with open(f'./experiments/results/{dataset}/{model_to_explain}/{method_dir_name}/params.json', 'r') as json_file:
+        with open(method_results_dir / 'params.json', 'r') as json_file:
             method_params = json.load(json_file)
             method_test_indexes = method_params["X_test_indexes"]
 
@@ -715,24 +754,26 @@ def compare_pareto_fronts(front_a, front_b, hv_reference_point=None, normalize=T
 
 
 def obtain_cfs_objectives(dataset, methods, model_to_explain,
-                          data_tuple, original_classes, model, outlier_calculator, possible_nuns):
+                          data_tuple, original_classes, model, outlier_calculator, possible_nuns,
+                          experiment_family=None):
 
     X_train, y_train, X_test, y_test = data_tuple
 
-    cf_solution_dirs = [fname for fname in os.listdir(f'./experiments/results/{dataset}/{model_to_explain}') if os.path.isdir(f'./experiments/results/{dataset}/{model_to_explain}/{fname}')]
-    desired_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in cf_solution_dirs if cf_sol_dir in methods.keys()]
-    valid_cf_solution_dirs = [cf_sol_dir for cf_sol_dir in desired_cf_solution_dirs if os.path.isfile(f'./experiments/results/{dataset}/{model_to_explain}/{cf_sol_dir}/counterfactuals.pickle')]
+    results_dir = get_results_dir(dataset, model_to_explain, experiment_family)
+    valid_cf_solution_dirs = find_cf_solution_dirs(results_dir, methods)
     method_cfs_dataset_dict = {}
     method_objectives_dataset_dict = {}
     method_test_indexes_dict = {}
     common_test_indexes = list(range(len(X_test)))
-    for i, method_dir_name in enumerate(valid_cf_solution_dirs):
+    for i, method_rel_path in enumerate(valid_cf_solution_dirs):
+        method_dir_name = method_rel_path.name
+        method_results_dir = results_dir / method_rel_path
         # Load solution cfs
-        with open(f'./experiments/results/{dataset}/{model_to_explain}/{method_dir_name}/counterfactuals.pickle', 'rb') as f:
-            print(method_dir_name)
+        with open(method_results_dir / 'counterfactuals.pickle', 'rb') as f:
+            print(method_rel_path)
             method_cfs = pickle.load(f)
         # Load params
-        with open(f'./experiments/results/{dataset}/{model_to_explain}/{method_dir_name}/params.json', 'r') as json_file:
+        with open(method_results_dir / 'params.json', 'r') as json_file:
             method_params = json.load(json_file)
             method_test_indexes = method_params["X_test_indexes"]
 
@@ -772,6 +813,7 @@ def calculate_pareto_front_metrics_for_dataset(
     normalize=True,
     hv_reference_point=None,
     hv_ref_margin=0.1,
+    experiment_family=None,
 ):
     if isinstance(outlier_calculator, dict):
         if plausibility_objective not in outlier_calculator:
@@ -797,6 +839,7 @@ def calculate_pareto_front_metrics_for_dataset(
         model,
         selected_outlier_calculator,
         possible_nuns,
+        experiment_family=experiment_family,
     )
 
     pairwise_rows = []
@@ -915,6 +958,7 @@ def calculate_method_valids(model, X_test, counterfactuals, original_classes):
 
 def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, solutions_in, original_classes,
                              method_name, mo_weights=None, order=None):
+    outlier_calculators = outlier_calculators or {}
     # Get the results and separate them in counterfactuals and execution times
     solutions = copy.deepcopy(solutions_in)
     # Check if the solutions are single or multiple solutions
@@ -943,13 +987,19 @@ def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, s
     increase_outlier_scores_dict = {}
     n_subsequences = []
     best_cf_is = []
+    pred_classes = []
+    selected_utility_scores = []
+    ion_scores = []
     if nuns[0] is not None:
         desired_classes = np.argmax(model_wrapper.predict(nuns), axis=1)
     else:
         desired_classes = None
+    ae_outlier_calculator = outlier_calculators.get("AE")
     for i in tqdm(range(len(X_test))):
         counterfactuals_i = ensure_cf_batch(counterfactuals[i], length, n_channels)
         x_orig_i = X_test[i]
+        selected_utility_score = np.nan
+        ion_score = np.nan
         # If there are multiple counterfactuals apply mo_weights
         if counterfactuals_i.shape[0] > 1:
             # Sort by objective weights and take the best
@@ -959,14 +1009,14 @@ def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, s
                 predicted_probs, original_classes[i], preferred_class=preferred_class
             )
             # Get outlier scores from AE to get the best CF
-            if outlier_calculators is not None:
-                aux_outlier_scores = outlier_calculators["AE"].get_outlier_scores(counterfactuals_i)
+            if ae_outlier_calculator is not None:
+                aux_outlier_scores = ae_outlier_calculator.get_outlier_scores(counterfactuals_i)
             else:
                 aux_outlier_scores = np.zeros((predicted_probs.shape[0], 1))
             # Get fitness scores
             change_masks = (counterfactuals_i != x_orig_i).astype(int)
-            if outlier_calculators is not None:
-                original_outlier_score = outlier_calculators["AE"].get_outlier_scores(x_orig_i)[0]
+            if ae_outlier_calculator is not None:
+                original_outlier_score = ae_outlier_calculator.get_outlier_scores(x_orig_i)[0]
             else:
                 original_outlier_score = 0
             if len(mo_weights) == 3:
@@ -983,15 +1033,72 @@ def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, s
                 raise ValueError(f"Unsupported number of multi-objective weights: {len(mo_weights)}")
             fitness = (objective_fitness * mo_weights).sum(axis=1)
             best_cf_i = np.argsort(fitness)[-1]
+            selected_utility_score = fitness[best_cf_i]
             counterfactual_i = counterfactuals_i[best_cf_i].reshape(length, n_channels)
             best_cf_is.append(best_cf_i)
         else:
             best_cf_is.append(0)
             counterfactual_i = counterfactuals_i[0].reshape(length, n_channels)
+            if mo_weights is not None:
+                predicted_probs = model_wrapper.predict(counterfactual_i)
+                preferred_class = desired_classes[i] if desired_classes is not None else None
+                desired_class = infer_desired_class_for_ranking(
+                    predicted_probs, original_classes[i], preferred_class=preferred_class
+                )
+                if ae_outlier_calculator is not None:
+                    aux_outlier_scores = ae_outlier_calculator.get_outlier_scores(counterfactual_i)
+                    original_outlier_score = ae_outlier_calculator.get_outlier_scores(x_orig_i)[0]
+                else:
+                    aux_outlier_scores = np.zeros((predicted_probs.shape[0], 1))
+                    original_outlier_score = 0
+                change_masks = (np.expand_dims(counterfactual_i, axis=0) != x_orig_i).astype(int)
+                if len(mo_weights) == 3:
+                    objective_fitness = fitness_function_mo_no_plausibility(
+                        change_masks, predicted_probs, desired_class, aux_outlier_scores,
+                        original_outlier_score, 100
+                    )
+                elif len(mo_weights) == 4:
+                    objective_fitness = fitness_function_mo(
+                        change_masks, predicted_probs, desired_class, aux_outlier_scores,
+                        original_outlier_score, 100
+                    )
+                else:
+                    raise ValueError(f"Unsupported number of multi-objective weights: {len(mo_weights)}")
+                selected_utility_score = (objective_fitness * mo_weights).sum(axis=1)[0]
+
+        if (mo_weights is not None) and (desired_classes is not None):
+            nun_i = nuns[i].reshape(length, n_channels)
+            nun_predicted_probs = model_wrapper.predict(nun_i)
+            nun_change_mask = (np.expand_dims(nun_i, axis=0) != x_orig_i).astype(int)
+            if ae_outlier_calculator is not None:
+                nun_outlier_scores = ae_outlier_calculator.get_outlier_scores(nun_i)
+                original_outlier_score = ae_outlier_calculator.get_outlier_scores(x_orig_i)[0]
+            else:
+                nun_outlier_scores = np.zeros((nun_predicted_probs.shape[0], 1))
+                original_outlier_score = 0
+            # FastPACE reports improvement over NUN as selected utility minus NUN utility;
+            # higher is better because the same weighted fitness is maximized for both.
+            if len(mo_weights) == 3:
+                nun_objective_fitness = fitness_function_mo_no_plausibility(
+                    nun_change_mask, nun_predicted_probs, desired_classes[i], nun_outlier_scores,
+                    original_outlier_score, 100
+                )
+            elif len(mo_weights) == 4:
+                nun_objective_fitness = fitness_function_mo(
+                    nun_change_mask, nun_predicted_probs, desired_classes[i], nun_outlier_scores,
+                    original_outlier_score, 100
+                )
+            else:
+                raise ValueError(f"Unsupported number of multi-objective weights: {len(mo_weights)}")
+            nun_utility_score = (nun_objective_fitness * mo_weights).sum(axis=1)[0]
+            ion_score = selected_utility_score - nun_utility_score
 
         # Predict counterfactual class probability
         preds = model_wrapper.predict(counterfactual_i)
         pred_class = np.argmax(preds, axis=1)[0]
+        pred_classes.append(pred_class)
+        selected_utility_scores.append(selected_utility_score)
+        ion_scores.append(ion_score)
 
         # Valids
         if (pred_class != original_classes[i]) and (~np.isnan(counterfactual_i).any()):
@@ -1066,6 +1173,8 @@ def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, s
     results["L1"] = l1s
     results["L2"] = l2s
     results["proba"] = pred_probas
+    results["pred_class"] = pred_classes
+    results["target_class"] = desired_classes if desired_classes is not None else [np.nan] * len(X_test)
     results["valid"] = valids
     results["nuns_valid"] = valid_nuns
     # Create column for Outlier Scores for every calculator
@@ -1084,6 +1193,8 @@ def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, s
     results['times'] = execution_times
     results['method'] = method_name
     results['best cf index'] = best_cf_is
+    results['selected utility score'] = selected_utility_scores
+    results['IoN'] = ion_scores
     if order is not None:
         results['order'] = order
 

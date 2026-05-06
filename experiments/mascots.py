@@ -34,6 +34,14 @@ DATASETS = [
     # 'RacketSports', 'SelfRegulationSCP1'
 ]
 
+DATASETS = [
+   #  'ECG200', 
+    'Gunpoint', 'Coffee',
+    'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA',#  'HandOutlines',
+    'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso',
+    'NonInvasiveFatalECGThorax2', 'CBF',
+]
+
 ADDITIONAL_SUBSAMPLE_SUBSET = 20
 PARAMS_PATH = "experiments/params_cf/baseline_mascots.json"
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"

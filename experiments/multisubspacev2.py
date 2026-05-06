@@ -1,15 +1,11 @@
-import os
-import copy
 import random
-import pickle
-import sys
 import json
 import multiprocessing as mp
 from pathlib import Path
-import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import tensorflow as tf
+
 
 """if gpus:
     try:
@@ -22,13 +18,18 @@ import tensorflow as tf
         print(e)"""
 
 import torch
-from sklearn.metrics import classification_report
 
 from experiments.experiment_utils import store_partial_cfs, load_parameters_from_json,generate_settings_combinations
+from experiments.metrics_excel import (
+    DEFAULT_METRIC_DIRECTIONS,
+    get_metrics_excel_filename,
+    save_family_summary_excel,
+    save_metrics_excel,
+)
 from experiments.results.results_concatenator import concatenate_result_files
 
 from methods.outlier_calculators import AEOutlierCalculator
-from methods.MultiSubSpaCECF import MultiSubSpaCECF
+from methods.MultiSubSpaCECF import MultiSubSpaCECFv2
 from methods.nun_finders import GlobalNUNFinder, IndependentNUNFinder, SecondBestGlobalNUNFinder
 from methods.MultiSubSpaCE.FeatureImportanceInitializers import GraCAMPlusFI, NoneFI
 
@@ -37,14 +38,14 @@ from experiments.experiment_utils import prepare_experiment, load_model
 
 DATASETS = [
     'BasicMotions',
-    # 'NATOPS',
-   # 'UWaveGestureLibrary', 'Cricket',
-   # 'ArticularyWordRecognition', 'Epilepsy',
-   # 'PenDigits',
+    'NATOPS',
+    'UWaveGestureLibrary', # 'Cricket',
+    'ArticularyWordRecognition', 'Epilepsy',
+    'PenDigits',
     
-   # 'RacketSports',
+    'RacketSports',
     'SelfRegulationSCP1',
-    'PEMS-SF',
+    # 'PEMS-SF',
 ]
 
 """DATASETS = [
@@ -54,17 +55,22 @@ DATASETS = [
     'NonInvasiveFatalECGThorax2', 'CBF',
 ]"""
 
-# EXPERIMENT_FAMILY = 'multisubspace_second_nun'
-EXPERIMENT_FAMILY = 'multisubspace_final_gpu'
-# EXPERIMENT_FAMILY = 'multisubspace_final_noplau_gpu'
+
+EXPERIMENT_FAMILY = 'multisubspace_v2_pop_iter'
 PARAMS_PATH = f'experiments/params_cf/{EXPERIMENT_FAMILY}.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
 OC_EXPERIMENT_NAME = 'ae_basic_train'
+OUTLIER_CALCULATOR_EXPERIMENTS = {"AE": OC_EXPERIMENT_NAME, "IF": "if_basic_train", "LOF": "lof_basic_train"}
+
+# Order matches visualize_counterfactuals_mo_multivariate: [adv, sparsity, contiguity, plausibility].
+MO_EVAL_WEIGHTS = {"adv": 0.1, "sparsity": 0.4 * 0.7, "contiguity": 0.6 * 0.7, "plausibility": 0.2}
+STORE_EXCEL_METRICS = True
+METRIC_DIRECTIONS = DEFAULT_METRIC_DIRECTIONS
 
 MULTIPROCESSING = True
 I_START = 0
-THREAD_SAMPLES = 100
-POOL_SIZE = 1
+THREAD_SAMPLES = 5
+POOL_SIZE = 20
 MP_START_METHOD = "spawn"
 
 
@@ -150,7 +156,7 @@ def get_counterfactual_worker(sample_dict):
 
     # Instantiate the Counterfactual Explanation method
     grouped_channels_iter, individual_channels_iter, pruning_iter = params["max_iter"]
-    cf_explainer = MultiSubSpaCECF(
+    cf_explainer = MultiSubSpaCECFv2(
         model_wrapper, outlier_calculator_worker, fi_method,
         grouped_channels_iter, individual_channels_iter, pruning_iter,
         plausibility_objective=params["plausibility_objective"],
@@ -159,6 +165,7 @@ def get_counterfactual_worker(sample_dict):
         add_subseq_mutation_prob=params["add_subseq_mutation_prob"],
         integrated_pruning_mutation_prob=params["integrated_pruning_mutation_prob"],
         final_pruning_mutation_prob=params["final_pruning_mutation_prob"],
+        channel_mutation_prob=params["channel_mutation_prob"],
         init_pct=params["init_pct"], reinit=params["reinit"], init_random_mix_ratio=params["init_random_mix_ratio"],
         invalid_penalization=params["invalid_penalization"],
     )
@@ -183,25 +190,25 @@ def experiment_dataset(dataset, exp_name, params, experiment_family):
     result_path = Path("experiments/results") / dataset / MODEL_TO_EXPLAIN_EXPERIMENT_NAME / experiment_family / exp_name
     print(f"Result path: {result_path}")
 
-    X_train, y_train, X_test, y_test, subset_idx, n_classes, _, y_pred_train, y_pred_test = prepare_experiment(
+    X_train, y_train, X_test, y_test, subset_idx, n_classes, model_wrapper, y_pred_train, y_pred_test = prepare_experiment(
         dataset, params, MODEL_TO_EXPLAIN_EXPERIMENT_NAME)
 
     # Get the NUNs
     nun_strategy = get_nun_strategy(params)
-    model_wrapper = None
+    nun_model_wrapper = None
     if nun_strategy in {"independent", "second_best"}:
         model_folder = f'experiments/models/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}'
-        model_wrapper = load_model(model_folder, dataset, X_train.shape[2], X_train.shape[1], n_classes)
+        nun_model_wrapper = load_model(model_folder, dataset, X_train.shape[2], X_train.shape[1], n_classes)
 
     if nun_strategy == "independent":
         nun_finder = IndependentNUNFinder(
             X_train, y_train, y_pred_train, distance='euclidean',
-            from_true_labels=False, backend='tf', n_neighbors=params["n_neighbors"], model=model_wrapper
+            from_true_labels=False, backend='tf', n_neighbors=params["n_neighbors"], model=nun_model_wrapper
         )
     elif nun_strategy == "second_best":
         nun_finder = SecondBestGlobalNUNFinder(
             X_train, y_train, y_pred_train, distance='euclidean',
-            from_true_labels=False, backend='tf', model=model_wrapper
+            from_true_labels=False, backend='tf', model=nun_model_wrapper
         )
     elif nun_strategy == "global":
         nun_finder = GlobalNUNFinder(
@@ -261,6 +268,26 @@ def experiment_dataset(dataset, exp_name, params, experiment_family):
     with open(result_path / 'params.json', 'w') as fp:
         json.dump(params, fp, sort_keys=True)
 
+    if params.get("store_excel_metrics", STORE_EXCEL_METRICS):
+        save_metrics_excel(
+            dataset,
+            exp_name,
+            params,
+            experiment_family,
+            result_path,
+            X_train,
+            X_test,
+            y_test,
+            y_pred_test,
+            subset_idx,
+            nuns,
+            model_wrapper,
+            MODEL_TO_EXPLAIN_EXPERIMENT_NAME,
+            MO_EVAL_WEIGHTS,
+            OUTLIER_CALCULATOR_EXPERIMENTS,
+            metric_directions=METRIC_DIRECTIONS,
+        )
+
 
 if __name__ == "__main__":
     mp.freeze_support()
@@ -269,13 +296,21 @@ if __name__ == "__main__":
     # Load parameters
     all_params = load_parameters_from_json(PARAMS_PATH)
     params_combinations = generate_settings_combinations(all_params)
-    for experiment_name, experiment_params in params_combinations.items():
-        for dataset in DATASETS:
+    for dataset in DATASETS:
+        for experiment_name, experiment_params in params_combinations.items():
+            experiment_name = f"v2_{experiment_name}"
             print(f'Starting experiment {experiment_name} for dataset {dataset}...')
             experiment_dataset(
                 dataset,
                 experiment_name,
                 experiment_params,
                 EXPERIMENT_FAMILY
+            )
+
+        if STORE_EXCEL_METRICS:
+            family_path = Path("experiments/results") / dataset / MODEL_TO_EXPLAIN_EXPERIMENT_NAME / EXPERIMENT_FAMILY
+            save_family_summary_excel(
+                family_path,
+                get_metrics_excel_filename(MO_EVAL_WEIGHTS),
             )
     print('Finished')

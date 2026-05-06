@@ -5,6 +5,7 @@ import pickle
 import sys
 import json
 import multiprocessing as mp
+from pathlib import Path
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
@@ -53,9 +54,10 @@ DATASETS = [
     'NonInvasiveFatalECGThorax2', 'CBF',
 ]"""
 
-PARAMS_PATH = 'experiments/params_cf/multisubspace_second_nun.json'
-# PARAMS_PATH = 'experiments/params_cf/multisubspace_final_gpu.json'
-# PARAMS_PATH = 'experiments/params_cf/multisubspace_final_noplau_gpu.json'
+EXPERIMENT_FAMILY = 'multisubspace_second_nun'
+# EXPERIMENT_FAMILY = 'multisubspace_final_gpu'
+# EXPERIMENT_FAMILY = 'multisubspace_final_noplau_gpu'
+PARAMS_PATH = f'experiments/params_cf/{EXPERIMENT_FAMILY}.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
 OC_EXPERIMENT_NAME = 'ae_basic_train'
 
@@ -97,6 +99,7 @@ def get_counterfactual_worker(sample_dict):
     configure_tensorflow_runtime(log=False)
 
     dataset = sample_dict["dataset"]
+    experiment_family = sample_dict["experiment_family"]
     X_train, y_train = sample_dict["train_data_tuple"]
     exp_name = sample_dict["exp_name"]
     params = sample_dict["params"]
@@ -171,11 +174,15 @@ def get_counterfactual_worker(sample_dict):
 
     # Store results of cf in list
     store_partial_cfs(results, first_sample_i, first_sample_i + THREAD_SAMPLES - 1,
-                      dataset, MODEL_TO_EXPLAIN_EXPERIMENT_NAME, file_suffix_name=exp_name)
+                      dataset, MODEL_TO_EXPLAIN_EXPERIMENT_NAME, file_suffix_name=exp_name,
+                      experiment_family=experiment_family)
     return 1
 
 
-def experiment_dataset(dataset, exp_name, params):
+def experiment_dataset(dataset, exp_name, params, experiment_family):
+    result_path = Path("experiments/results") / dataset / MODEL_TO_EXPLAIN_EXPERIMENT_NAME / experiment_family / exp_name
+    print(f"Result path: {result_path}")
+
     X_train, y_train, X_test, y_test, subset_idx, n_classes, _, y_pred_train, y_pred_test = prepare_experiment(
         dataset, params, MODEL_TO_EXPLAIN_EXPERIMENT_NAME)
 
@@ -219,6 +226,7 @@ def experiment_dataset(dataset, exp_name, params):
 
             sample_dict = {
                 "dataset": dataset,
+                "experiment_family": experiment_family,
                 "train_data_tuple": (X_train, y_train),
                 "exp_name": exp_name,
                 "params": params,
@@ -245,11 +253,12 @@ def experiment_dataset(dataset, exp_name, params):
             _ = list(tqdm(p.imap(get_counterfactual_worker, samples), total=len(samples)))
 
     # Concatenate the results
-    concatenate_result_files(dataset, MODEL_TO_EXPLAIN_EXPERIMENT_NAME, exp_name)
+    concatenate_result_files(dataset, MODEL_TO_EXPLAIN_EXPERIMENT_NAME, exp_name, experiment_family=experiment_family)
 
     # Store experiment metadata
     params["X_test_indexes"] = subset_idx.tolist()
-    with open(f'./experiments/results/{dataset}/{MODEL_TO_EXPLAIN_EXPERIMENT_NAME}/{exp_name}/params.json', 'w') as fp:
+    params["experiment_family"] = experiment_family
+    with open(result_path / 'params.json', 'w') as fp:
         json.dump(params, fp, sort_keys=True)
 
 
@@ -266,6 +275,7 @@ if __name__ == "__main__":
             experiment_dataset(
                 dataset,
                 experiment_name,
-                experiment_params
+                experiment_params,
+                EXPERIMENT_FAMILY
             )
     print('Finished')

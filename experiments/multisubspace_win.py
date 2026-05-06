@@ -37,14 +37,14 @@ from experiments.experiment_utils import prepare_experiment, load_model
 
 DATASETS = [
     'BasicMotions',
-    # 'NATOPS',
-   # 'UWaveGestureLibrary', 'Cricket',
-   # 'ArticularyWordRecognition', 'Epilepsy',
-   # 'PenDigits',
+    'NATOPS',
+    # 'UWaveGestureLibrary', # 'Cricket',
+    'ArticularyWordRecognition', 'Epilepsy',
+    'PenDigits',
     
-   # 'RacketSports',
+    'RacketSports',
     'SelfRegulationSCP1',
-    'PEMS-SF',
+    # 'PEMS-SF',
 ]
 
 """DATASETS = [
@@ -55,7 +55,7 @@ DATASETS = [
 ]"""
 
 # EXPERIMENT_FAMILY = 'multisubspace_second_nun'
-EXPERIMENT_FAMILY = 'multisubspace_final_gpu'
+EXPERIMENT_FAMILY = 'multisubspace_window'
 # EXPERIMENT_FAMILY = 'multisubspace_final_noplau_gpu'
 PARAMS_PATH = f'experiments/params_cf/{EXPERIMENT_FAMILY}.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
@@ -63,8 +63,8 @@ OC_EXPERIMENT_NAME = 'ae_basic_train'
 
 MULTIPROCESSING = True
 I_START = 0
-THREAD_SAMPLES = 100
-POOL_SIZE = 1
+THREAD_SAMPLES = 5
+POOL_SIZE = 20
 MP_START_METHOD = "spawn"
 
 
@@ -161,6 +161,7 @@ def get_counterfactual_worker(sample_dict):
         final_pruning_mutation_prob=params["final_pruning_mutation_prob"],
         init_pct=params["init_pct"], reinit=params["reinit"], init_random_mix_ratio=params["init_random_mix_ratio"],
         invalid_penalization=params["invalid_penalization"],
+        mask_window_pct=params["mask_window_pct"],
     )
 
     # Generate counterfactuals
