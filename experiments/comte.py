@@ -17,18 +17,17 @@ from experiments.results.results_concatenator import concatenate_result_files
 from methods.COMTECF import COMTECF
 
 DATASETS = [
-    # 'BasicMotions', 'NATOPS', 'UWaveGestureLibrary',
-    # 'Cricket',
+    'BasicMotions', 'NATOPS', 'UWaveGestureLibrary',
     'ArticularyWordRecognition',
-    'Epilepsy', # 'PenDigits',
-    # 'PEMS-SF',
+    'Epilepsy', 'PenDigits',
     'RacketSports', 'SelfRegulationSCP1'
+    'PEMS-SF', 'Cricket',
 ]
 
 ADDITIONAL_SUBSAMPLE_SUBSET = None
 PARAMS_PATH = 'experiments/params_cf/baseline_comte.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = 'inceptiontime_noscaling'
-MULTIPROCESSING = True
+MULTIPROCESSING = False
 I_START = 0
 THREAD_SAMPLES = 5
 POOL_SIZE = 1

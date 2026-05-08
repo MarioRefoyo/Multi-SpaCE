@@ -126,6 +126,46 @@ def prepare_experiment(dataset, params, model_to_explain, additional_subsample_s
     return X_train, y_train, X_test, y_test, subset_idx, n_classes, model_wrapper, y_pred_train, y_pred_test
 
 
+def prepare_experiment_robustness(dataset, params, model_to_explain, additional_subsample_subset=None):
+    # Set seed
+    if params["seed"] is not None:
+        np.random.seed(params["seed"])
+        random.seed(params["seed"])
+
+    # Load the full test split. The robustness experiment performs its own
+    # anchor/neighbor sampling and needs original test indexes.
+    scaling = params["scaling"]
+    X_train, y_train, X_test, y_test = local_data_loader(str(dataset), scaling, backend="tf",
+                                                         data_path="./experiments/data")
+    y_train, y_test = label_encoder(y_train, y_test)
+    ts_length = X_train.shape[1]
+    n_channels = X_train.shape[2]
+    classes = np.unique(y_train)
+    n_classes = len(classes)
+    test_idx = np.arange(len(X_test))
+
+    if additional_subsample_subset is not None:
+        X_test, y_test, sub_subset_index = get_subsample(
+            X_test, y_test, additional_subsample_subset, params["seed"]
+        )
+        test_idx = test_idx[sub_subset_index]
+
+    # Get model
+    model_folder = f'experiments/models/{dataset}/{model_to_explain}'
+    model_wrapper = load_model(model_folder, dataset, n_channels, ts_length, n_classes)
+
+    # Predict
+    y_pred_test_logits = model_wrapper.predict(X_test, batch_size=16)
+    y_pred_train_logits = model_wrapper.predict(X_train, batch_size=16)
+    y_pred_test = np.argmax(y_pred_test_logits, axis=1)
+    y_pred_train = np.argmax(y_pred_train_logits, axis=1)
+    print(classification_report(y_test, y_pred_test))
+
+    return (
+        X_train, y_train, X_test, y_test, test_idx, n_classes, model_wrapper,
+        y_pred_train, y_pred_test, y_pred_train_logits, y_pred_test_logits
+    )
+
 def load_model(model_folder, dataset, n_channels, ts_length, n_classes):
     if os.path.exists(f'{model_folder}/model.hdf5'):
         backend = "tf"

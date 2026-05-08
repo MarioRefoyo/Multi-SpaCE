@@ -39,13 +39,13 @@ from experiments.experiment_utils import prepare_experiment, load_model
 DATASETS = [
     'BasicMotions',
     'NATOPS',
-    'UWaveGestureLibrary', # 'Cricket',
+    'UWaveGestureLibrary', 'Cricket',
     'ArticularyWordRecognition', 'Epilepsy',
     'PenDigits',
     
     'RacketSports',
     'SelfRegulationSCP1',
-    # 'PEMS-SF',
+    'PEMS-SF',
 ]
 
 """DATASETS = [
@@ -56,7 +56,7 @@ DATASETS = [
 ]"""
 
 
-EXPERIMENT_FAMILY = 'multisubspace_v2_pop_iter'
+EXPERIMENT_FAMILY = 'multisubspace_v2_final'
 PARAMS_PATH = f'experiments/params_cf/{EXPERIMENT_FAMILY}.json'
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
 OC_EXPERIMENT_NAME = 'ae_basic_train'

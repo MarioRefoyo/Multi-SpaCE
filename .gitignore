@@ -20,3 +20,5 @@ env_backups/
 experiments/models/models.zip
 lightning_logs/
 *.ckpt
+experiments/evaluation/ecg_morphology_outputs/*
+experiments/evaluation/robustness_analysis_outputs/*

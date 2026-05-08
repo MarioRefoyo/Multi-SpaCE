@@ -2,6 +2,7 @@ import os
 import copy
 import pickle
 import json
+import inspect
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -1751,6 +1752,7 @@ def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_
             continue
         avg_ranks = avg_ranks.loc[common_methods]
         sig_matrix = sig_matrix.loc[common_methods, common_methods]
+        significant_mask = sig_matrix.astype(float) <= alpha
 
         # Apply paper/display names to methods for plotting (must remain unique).
         plot_method_names = [method_name_map.get(m, m) for m in avg_ranks.index]
@@ -1761,9 +1763,16 @@ def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_
             )
         avg_ranks_plot = avg_ranks.copy()
         avg_ranks_plot.index = plot_method_names
-        sig_matrix_plot = sig_matrix.copy()
-        sig_matrix_plot.index = [method_name_map.get(m, m) for m in sig_matrix_plot.index]
-        sig_matrix_plot.columns = [method_name_map.get(m, m) for m in sig_matrix_plot.columns]
+
+        # scikit-posthocs 0.8.x re-thresholds the p-value matrix at a fixed
+        # alpha=0.05 inside critical_difference_diagram(). Encode the requested
+        # alpha into a p-value-like matrix so plotting matches the test setting.
+        sig_matrix_plot = pd.DataFrame(
+            np.where(significant_mask, 0.001, 1.0),
+            index=[method_name_map.get(m, m) for m in sig_matrix.index],
+            columns=[method_name_map.get(m, m) for m in sig_matrix.columns],
+        )
+        np.fill_diagonal(sig_matrix_plot.values, 1.0)
 
         summary_rows.append({
             "metric": metric,
@@ -1777,6 +1786,8 @@ def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_
             "friedman_statistic": friedman_stat,
             "friedman_p": friedman_p,
             "posthoc_test": posthoc,
+            "alpha": alpha,
+            "n_significant_pairs": int(np.triu(significant_mask.to_numpy(), k=1).sum()),
         })
 
         display_name = metric_name_map.get(metric, metric)
@@ -1786,17 +1797,24 @@ def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_
         else:
             local_figsize = figsize
         _, ax = plt.subplots(figsize=local_figsize)
-        artists = sp.critical_difference_diagram(
-            ranks=avg_ranks_plot,
-            sig_matrix=sig_matrix_plot,
-            alpha=alpha,
-            ax=ax,
-            label_fmt_left="{label} ({rank:.2f})",
-            label_fmt_right="({rank:.2f}) {label}",
-            label_props={"fontsize": method_label_fontsize},
-            text_h_margin=text_h_margin,
-            left_only=left_only,
-        )
+        cd_plot_kwargs = {
+            "ranks": avg_ranks_plot,
+            "sig_matrix": sig_matrix_plot,
+            "alpha": alpha,
+            "ax": ax,
+            "label_fmt_left": "{label} ({rank:.2f})",
+            "label_fmt_right": "({rank:.2f}) {label}",
+            "label_props": {"fontsize": method_label_fontsize},
+            "text_h_margin": text_h_margin,
+            "left_only": left_only,
+        }
+        cd_plot_signature = inspect.signature(sp.critical_difference_diagram)
+        supported_cd_plot_kwargs = {
+            key: value
+            for key, value in cd_plot_kwargs.items()
+            if key in cd_plot_signature.parameters
+        }
+        artists = sp.critical_difference_diagram(**supported_cd_plot_kwargs)
 
         # Force monochrome styling post-hoc to avoid any c/color alias conflicts
         # inside scikit-posthocs internals.

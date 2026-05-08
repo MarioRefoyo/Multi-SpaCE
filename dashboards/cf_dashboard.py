@@ -14,6 +14,7 @@ try:
         build_result_file_path,
         candidate_table,
         discover_candidate_files,
+        enrich_instance_with_evaluation_metrics,
         load_result_file,
         find_nearby_params,
         list_experiment_options,
@@ -29,6 +30,7 @@ except ImportError:
         build_result_file_path,
         candidate_table,
         discover_candidate_files,
+        enrich_instance_with_evaluation_metrics,
         load_result_file,
         find_nearby_params,
         list_experiment_options,
@@ -65,7 +67,7 @@ def cached_discovery(root: str, limit: int) -> list[str]:
 def cached_load(path: str, mtime_ns: int, size_bytes: int) -> dict:
     raw = load_result_file(path)
     params = find_nearby_params(path)
-    return normalize_loaded_object(raw, path, params=params)
+    return normalize_loaded_object(raw, path, params=params, load_companion=True)
 
 
 def file_signature(path: str | Path) -> tuple[str, int, int]:
@@ -118,10 +120,8 @@ def main() -> None:
     instance = select_instance(instances)
     if instance is None:
         return
-    # Rollback hook:
-    # instance = enrich_instance_with_evaluation_metrics(instance, normalized["source_path"])
-    # Keep the expensive per-candidate recomputation disabled by default. The dashboard now
-    # prefers saved experiment metrics that do not depend on the predefined utility weighting.
+    with st.spinner("Calculating model, NUN, and AE scores for the selected instance..."):
+        instance = enrich_instance_with_evaluation_metrics(instance, normalized["source_path"])
 
     table = candidate_table(instance)
     selected_candidate_id = select_candidate(table)
@@ -335,8 +335,16 @@ def render_time_series(instance: dict, candidate: dict | None) -> None:
         st.warning(f"Shape mismatch: x_orig {x_orig.shape}, x_cf {x_cf.shape}.")
         return
 
-    fig = make_overlay_figure(x_orig, x_cf, x_nun, mask)
-    st.plotly_chart(fig, use_container_width=True)
+    size_pct = st.slider("Overlay size", min_value=40, max_value=100, value=70, step=5)
+    fig = make_overlay_figure(x_orig, x_cf, x_nun, mask, size_scale=size_pct / 100)
+    if size_pct == 100:
+        st.plotly_chart(fig, use_container_width=True)
+        return
+
+    side_pad = max(1.0, (100 - size_pct) / 2)
+    _, center, _ = st.columns([side_pad, float(size_pct), side_pad])
+    with center:
+        st.plotly_chart(fig, use_container_width=True)
 
 
 def make_overlay_figure(
@@ -344,6 +352,7 @@ def make_overlay_figure(
     x_cf: np.ndarray,
     x_nun: np.ndarray | None,
     mask: np.ndarray | None,
+    size_scale: float = 1.0,
 ) -> go.Figure:
     n_channels = x_orig.shape[1]
     fig = make_subplots(rows=n_channels, cols=1, shared_xaxes=True, vertical_spacing=0.02)
@@ -394,7 +403,12 @@ def make_overlay_figure(
             add_changed_regions(fig, mask[:, channel], row=row)
         fig.update_yaxes(title_text=f"ch {channel}", row=row, col=1)
 
-    fig.update_layout(height=max(320, 180 * n_channels), margin={"l": 0, "r": 10, "t": 20, "b": 0}, xaxis_title="time")
+    base_height = max(320, 180 * n_channels)
+    fig.update_layout(
+        height=max(220, int(base_height * size_scale)),
+        margin={"l": 0, "r": 10, "t": 20, "b": 0},
+        xaxis_title="time",
+    )
     return fig
 
 

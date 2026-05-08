@@ -12,8 +12,16 @@ DATASETS = [
     'RacketSports', 'SelfRegulationSCP1'
 ]
 
+DATASETS = [
+    'ECG200',
+    'Gunpoint', 'Coffee',
+    'ItalyPowerDemand', 'ProximalPhalanxOutlineCorrect', 'Strawberry', 'FordA', 'HandOutlines',
+    'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso',
+    'NonInvasiveFatalECGThorax2', 'CBF',
+]
+
 MODEL_TO_EXPLAIN_EXPERIMENT_NAME = "inceptiontime_noscaling"
-METHOD_NAME = "tsevo"
+METHOD_NAME = "mascots"
 RESULTS_ROOT = Path("experiments/results")
 
 

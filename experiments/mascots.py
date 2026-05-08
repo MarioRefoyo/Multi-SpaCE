@@ -41,6 +41,7 @@ DATASETS = [
     'Plane', 'TwoPatterns', 'FacesUCR', 'ECG5000', 'CinCECGTorso',
     'NonInvasiveFatalECGThorax2', 'CBF',
 ]
+DATASETS = ['PEMS-SF',]
 
 ADDITIONAL_SUBSAMPLE_SUBSET = 20
 PARAMS_PATH = "experiments/params_cf/baseline_mascots.json"

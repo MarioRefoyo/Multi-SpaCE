@@ -329,10 +329,11 @@ def load_companion_data(path: str | Path, metadata: dict[str, Any], params: dict
     try:
         scaling = params.get("scaling", "none")
         X_test = np.load(data_dir / "X_test.npy", allow_pickle=True)
+        X_train = np.load(data_dir / "X_train.npy", allow_pickle=True)
         if scaling in {"none", None}:
+            companion["X_train"] = X_train
             companion["X_test"] = X_test
         else:
-            X_train = np.load(data_dir / "X_train.npy", allow_pickle=True)
             companion["X_train"] = apply_scaling(X_train, X_train, scaling)
             companion["X_test"] = apply_scaling(X_train, X_test, scaling)
     except Exception as exc:
@@ -508,6 +509,7 @@ def instance_from_mapping(
 
     return {
         "instance_id": scalarize(instance_id),
+        "position": position,
         "x_orig": normalize_series_array(x_orig),
         "x_nun": normalize_series_array(x_nun),
         "y_true": scalarize(y_true),
@@ -626,6 +628,7 @@ def instances_from_dataframe(df: pd.DataFrame) -> list[dict[str, Any]]:
         instances.append(
             {
                 "instance_id": scalarize(instance_id),
+                "position": len(instances),
                 "x_orig": None,
                 "x_nun": None,
                 "y_true": scalarize(value_from_keys(first_row, LABEL_KEYS["y_true"])),
@@ -657,22 +660,32 @@ def candidate_table(instance: dict[str, Any]) -> pd.DataFrame:
 
 def enrich_instance_with_evaluation_metrics(instance: dict[str, Any], source_path: str | Path) -> dict[str, Any]:
     context = get_evaluation_context(str(source_path))
-    if not context.get("model_wrapper"):
-        return instance
+    companion = context.get("companion", {})
 
     x_orig = normalize_series_array(instance.get("x_orig"))
     if x_orig is None:
+        x_orig = companion_x(companion, "X_test", instance.get("instance_id"))
+    if x_orig is None:
+        x_orig = companion_position_x(companion, "X_test", int(instance.get("position", 0)))
+    if x_orig is None:
         return instance
+    instance["x_orig"] = x_orig
 
     x_nun = normalize_series_array(instance.get("x_nun"))
     model_wrapper = context["model_wrapper"]
     predicted_orig = instance.get("predicted_orig")
-    if predicted_orig is None:
+    if model_wrapper is not None and predicted_orig is None:
         predicted_orig = int(np.argmax(model_wrapper.predict(np.expand_dims(x_orig, axis=0)), axis=1)[0])
         instance["predicted_orig"] = predicted_orig
 
+    if x_nun is None and model_wrapper is not None and predicted_orig is not None:
+        x_nun, nun_idx = retrieve_global_nun_for_dashboard(context, x_orig, int(predicted_orig))
+        if x_nun is not None:
+            instance["x_nun"] = x_nun
+            instance["nun_idx"] = nun_idx
+
     target_class = instance.get("target_class")
-    if target_class is None and x_nun is not None:
+    if model_wrapper is not None and target_class is None and x_nun is not None:
         target_class = int(np.argmax(model_wrapper.predict(np.expand_dims(x_nun, axis=0)), axis=1)[0])
         instance["target_class"] = target_class
 
@@ -687,10 +700,13 @@ def enrich_instance_with_evaluation_metrics(instance: dict[str, Any], source_pat
         if x_cf is None or x_cf.shape != x_orig.shape:
             continue
 
-        predicted_probs = model_wrapper.predict(np.expand_dims(x_cf, axis=0))
-        predicted_cf = int(np.argmax(predicted_probs, axis=1)[0])
-        candidate["predicted_cf"] = predicted_cf
-        candidate["validity"] = float(predicted_cf != predicted_orig)
+        predicted_probs = None
+        if model_wrapper is not None:
+            predicted_probs = model_wrapper.predict(np.expand_dims(x_cf, axis=0))
+            predicted_cf = int(np.argmax(predicted_probs, axis=1)[0])
+            candidate["predicted_cf"] = predicted_cf
+            if predicted_orig is not None:
+                candidate["validity"] = float(predicted_cf != predicted_orig)
 
         change_mask = calculate_change_mask_local(x_orig, x_cf, x_nun=x_nun)
         diff = x_cf - x_orig
@@ -709,10 +725,12 @@ def enrich_instance_with_evaluation_metrics(instance: dict[str, Any], source_pat
                 "sparsity": sparsity,
                 "subsequences": subsequences,
                 "subsequences %": subsequences_pct,
-                "validity": candidate["validity"],
-                "predicted_cf": predicted_cf,
             }
         )
+        if candidate.get("validity") is not None:
+            candidate["metrics"]["validity"] = candidate["validity"]
+        if candidate.get("predicted_cf") is not None:
+            candidate["metrics"]["predicted_cf"] = candidate["predicted_cf"]
         candidate["objectives"].update(
             {
                 "L1": l1,
@@ -720,11 +738,12 @@ def enrich_instance_with_evaluation_metrics(instance: dict[str, Any], source_pat
                 "sparsity": sparsity,
                 "subsequences": subsequences,
                 "subsequences %": subsequences_pct,
-                "validity": candidate["validity"],
             }
         )
+        if candidate.get("validity") is not None:
+            candidate["objectives"]["validity"] = candidate["validity"]
 
-        if target_class is not None:
+        if predicted_probs is not None and target_class is not None:
             desired_prob = float(predicted_probs[0, int(target_class)])
             candidate["metrics"]["desired_class_prob"] = desired_prob
             candidate["objectives"]["desired_class_prob"] = desired_prob
@@ -738,6 +757,35 @@ def enrich_instance_with_evaluation_metrics(instance: dict[str, Any], source_pat
             candidate["objectives"][f"{name}_IOS"] = increase
 
     return instance
+
+
+def retrieve_global_nun_for_dashboard(
+    context: dict[str, Any],
+    x_orig: np.ndarray,
+    predicted_orig: int,
+) -> tuple[np.ndarray | None, int | None]:
+    X_train = context.get("companion", {}).get("X_train")
+    model_wrapper = context.get("model_wrapper")
+    if X_train is None or model_wrapper is None:
+        return None, None
+
+    y_pred_train = context.get("y_pred_train")
+    if y_pred_train is None:
+        try:
+            y_pred_train = np.argmax(model_wrapper.predict(X_train, batch_size=16), axis=1)
+            context["y_pred_train"] = y_pred_train
+        except Exception:
+            return None, None
+
+    unlike_indexes = np.flatnonzero(np.asarray(y_pred_train).reshape(-1) != predicted_orig)
+    if unlike_indexes.size == 0:
+        return None, None
+
+    candidates = np.asarray(X_train)[unlike_indexes]
+    distances = np.linalg.norm((candidates - x_orig).reshape(candidates.shape[0], -1), axis=1)
+    best_position = int(np.argmin(distances))
+    train_idx = int(unlike_indexes[best_position])
+    return np.asarray(X_train[train_idx]), train_idx
 
 
 @lru_cache(maxsize=8)
@@ -894,6 +942,10 @@ def numeric_fields(mapping: dict[str, Any], allowed: set[str]) -> dict[str, floa
     output = {}
     for key, value in mapping.items():
         if str(key) not in allowed:
+            continue
+        if hasattr(value, "shape") and np.asarray(value).size > 1:
+            continue
+        if isinstance(value, (list, tuple, dict)):
             continue
         scalar = scalarize(value)
         if isinstance(scalar, (int, float, np.number, bool)) and not isinstance(scalar, str):
