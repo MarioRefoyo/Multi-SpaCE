@@ -37,12 +37,15 @@ from tqdm import tqdm
 RESULTS_ROOT = Path("experiments/results")
 MODEL_TO_EXPLAIN = "inceptiontime_noscaling"
 EXPERIMENT_FAMILY = "multisubspace_v2_robustness"
-DATASET = "SelfRegulationSCP1"  # Example: "ArticularyWordRecognition". Leave as None to analyze all discovered datasets.
+DATASET = "ArticularyWordRecognition"  # Example: "ArticularyWordRecognition". Leave as None to analyze all discovered datasets.
+EXPERIMENT_NAME = None  # Example: "v2_...". Leave as None to include all matching runs.
+NEIGHBOR_SELECTION_REGIME = None  # Example: "free" or "same_nun_target". Leave as None to keep all regimes separate in tables.
+AGGREGATE_EXPERIMENTS_WITHIN_DATASET = False
 EXPERIMENT_DIRS: list[Path] | None = None
 OUTPUT_DIR = Path("experiments/evaluation/robustness_analysis_outputs")
 
 EPSILON = 1e-8
-SAVE_PDF = True
+SAVE_PDF = False
 PLOT_DPI = 300
 MAKE_PER_DATASET_SCATTERS = True
 
@@ -56,6 +59,7 @@ def find_robustness_runs(
     model_to_explain: str = MODEL_TO_EXPLAIN,
     experiment_family: str = EXPERIMENT_FAMILY,
     dataset: str | None = DATASET,
+    experiment_name: str | None = EXPERIMENT_NAME,
 ) -> list[Path]:
     runs = []
     if dataset is None:
@@ -70,6 +74,8 @@ def find_robustness_runs(
         for run_dir in sorted(family_dir.iterdir()):
             if not run_dir.is_dir():
                 continue
+            if experiment_name is not None and run_dir.name != experiment_name:
+                continue
             if (run_dir / "anchor_neighbor_relationships.csv").is_file() and (
                 run_dir / "explained_instances.csv"
             ).is_file():
@@ -82,14 +88,24 @@ def load_relationships(run_dir: Path) -> pd.DataFrame:
     if not path.is_file():
         raise FileNotFoundError(f"Missing relationship table: {path}")
     df = pd.read_csv(path)
-    required = {"dataset", "anchor_test_index", "neighbor_test_index", "neighbor_rank"}
+    if "neighbor_selection_regime" not in df.columns:
+        df["neighbor_selection_regime"] = "free"
+    if "neighbor_rank" not in df.columns and "neighbor_rank_within_regime" in df.columns:
+        df["neighbor_rank"] = df["neighbor_rank_within_regime"]
+    required = {"dataset", "anchor_test_index", "neighbor_test_index", "neighbor_rank", "neighbor_selection_regime"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"{path} is missing required columns: {sorted(missing)}")
-    duplicated = df.duplicated(["dataset", "anchor_test_index", "neighbor_test_index", "neighbor_rank"]).sum()
+    duplicated = df.duplicated(
+        ["dataset", "neighbor_selection_regime", "anchor_test_index", "neighbor_test_index", "neighbor_rank"]
+    ).sum()
     if duplicated:
         warnings.warn(f"{path} contains {duplicated} duplicated relationship rows; keeping first occurrence.")
-        df = df.drop_duplicates(["dataset", "anchor_test_index", "neighbor_test_index", "neighbor_rank"])
+        df = df.drop_duplicates(
+            ["dataset", "neighbor_selection_regime", "anchor_test_index", "neighbor_test_index", "neighbor_rank"]
+        )
+    if NEIGHBOR_SELECTION_REGIME is not None:
+        df = df[df["neighbor_selection_regime"] == NEIGHBOR_SELECTION_REGIME].copy()
     return df
 
 
@@ -170,6 +186,7 @@ def build_pairwise_table(run_dir: Path, epsilon: float = EPSILON) -> tuple[pd.Da
         row = rel.to_dict()
         row.update(
             {
+                "experiment_name": run_dir.name,
                 "source_run_dir": str(run_dir),
                 "original_l2_distance": original_l2,
                 "cf_l2_distance": cf_l2,
@@ -198,7 +215,8 @@ def rank_preservation(group: pd.DataFrame) -> float:
 def build_anchor_summary(pairwise_df: pd.DataFrame) -> pd.DataFrame:
     if pairwise_df.empty:
         return pd.DataFrame()
-    grouped = pairwise_df.groupby(["dataset", "anchor_test_index"], dropna=False)
+    group_cols = ["dataset", "experiment_name", "neighbor_selection_regime", "anchor_test_index"]
+    grouped = pairwise_df.groupby(group_cols, dropna=False)
     summary = grouped.agg(
         mean_original_l2_distance=("original_l2_distance", "mean"),
         mean_cf_l2_distance=("cf_l2_distance", "mean"),
@@ -212,16 +230,12 @@ def build_anchor_summary(pairwise_df: pd.DataFrame) -> pd.DataFrame:
         n_neighbors_available=("neighbor_test_index", "count"),
     ).reset_index()
     rank_rows = []
-    for (dataset, anchor_idx), group in grouped:
-        rank_rows.append(
-            {
-                "dataset": dataset,
-                "anchor_test_index": anchor_idx,
-                "cf_rank_preservation_spearman": rank_preservation(group),
-            }
-        )
+    for group_key, group in grouped:
+        row = dict(zip(group_cols, group_key))
+        row["cf_rank_preservation_spearman"] = rank_preservation(group)
+        rank_rows.append(row)
     rank_df = pd.DataFrame(rank_rows)
-    return summary.merge(rank_df, on=["dataset", "anchor_test_index"], how="left")
+    return summary.merge(rank_df, on=group_cols, how="left")
 
 
 def corr_or_nan(df: pd.DataFrame, method: str) -> float:
@@ -236,11 +250,15 @@ def build_dataset_summary(pairwise_df: pd.DataFrame, anchor_df: pd.DataFrame) ->
     if pairwise_df.empty:
         return pd.DataFrame()
     rows = []
-    for dataset, df in pairwise_df.groupby("dataset", dropna=False):
-        anchors = anchor_df[anchor_df["dataset"] == dataset]
+    group_cols = ["dataset", "experiment_name", "neighbor_selection_regime"]
+    for group_key, df in pairwise_df.groupby(group_cols, dropna=False):
+        group_values = dict(zip(group_cols, group_key))
+        anchors = anchor_df
+        for col, value in group_values.items():
+            anchors = anchors[anchors[col] == value]
         rows.append(
             {
-                "dataset": dataset,
+                **group_values,
                 "neighbor_rank": "all",
                 "n_anchors": int(anchors["anchor_test_index"].nunique()),
                 "n_pairs": int(len(df)),
@@ -260,7 +278,7 @@ def build_dataset_summary(pairwise_df: pd.DataFrame, anchor_df: pd.DataFrame) ->
         for rank, rank_df in df.groupby("neighbor_rank", dropna=False):
             rows.append(
                 {
-                    "dataset": dataset,
+                    **group_values,
                     "neighbor_rank": int(rank) if pd.notna(rank) else np.nan,
                     "n_anchors": int(rank_df["anchor_test_index"].nunique()),
                     "n_pairs": int(len(rank_df)),
@@ -301,10 +319,10 @@ def distance_long_df(pairwise_df: pd.DataFrame, normalized: bool = False) -> pd.
         df["cf_l2_distance"] = df["cf_l2_distance"] / medians
     return pd.concat(
         [
-            df[["dataset", "neighbor_rank", "original_l2_distance"]].rename(
+            df[["dataset", "experiment_name", "neighbor_selection_regime", "neighbor_rank", "original_l2_distance"]].rename(
                 columns={"original_l2_distance": "distance_value"}
             ).assign(distance_type="Original input distance"),
-            df[["dataset", "neighbor_rank", "cf_l2_distance"]].rename(
+            df[["dataset", "experiment_name", "neighbor_selection_regime", "neighbor_rank", "cf_l2_distance"]].rename(
                 columns={"cf_l2_distance": "distance_value"}
             ).assign(distance_type="Counterfactual distance"),
         ],
@@ -323,6 +341,7 @@ def make_distance_distribution_plots(pairwise_df: pd.DataFrame, figures_dir: Pat
             x="distance_value",
             hue="distance_type",
             col="neighbor_rank",
+            row="neighbor_selection_regime" if plot_df["neighbor_selection_regime"].nunique() > 1 else None,
             kind="hist",
             kde=True,
             stat="density",
@@ -336,6 +355,27 @@ def make_distance_distribution_plots(pairwise_df: pd.DataFrame, figures_dir: Pat
         g.fig.suptitle("Original vs Counterfactual Distances by Neighbor Rank", y=1.05)
         save_figure(g.fig, figures_dir, stem)
 
+    for normalized, stem in [
+        (False, "distance_distribution_all_neighbors"),
+        (True, "distance_distribution_all_neighbors_normalized"),
+    ]:
+        plot_df = distance_long_df(pairwise_df, normalized=normalized)
+        fig, ax = plt.subplots(figsize=(7, 5))
+        sns.histplot(
+            data=plot_df,
+            x="distance_value",
+            hue="distance_type",
+            kde=True,
+            stat="density",
+            common_norm=False,
+            alpha=0.45,
+            ax=ax,
+        )
+        ax.set_xlabel("Normalized L2 distance" if normalized else "L2 distance")
+        ax.set_ylabel("Density")
+        ax.set_title("Original vs Counterfactual Distances Across All Neighbors")
+        save_figure(fig, figures_dir, stem)
+
 
 def add_diagonal(ax: plt.Axes, x: pd.Series, y: pd.Series) -> None:
     finite = pd.concat([x, y]).replace([np.inf, -np.inf], np.nan).dropna()
@@ -346,6 +386,37 @@ def add_diagonal(ax: plt.Axes, x: pd.Series, y: pd.Series) -> None:
     ax.plot([low, high], [low, high], linestyle="--", color="black", linewidth=1)
 
 
+def add_regression_lines(ax: plt.Axes, df: pd.DataFrame, log_scale: bool = False) -> None:
+    if df.empty:
+        return
+    if "neighbor_selection_regime" in df and df["neighbor_selection_regime"].nunique() > 1:
+        groups = df.groupby("neighbor_selection_regime", dropna=False)
+    else:
+        groups = [(None, df)]
+
+    palette = sns.color_palette(n_colors=len(groups))
+    for color, (label, group) in zip(palette, groups):
+        group = group[["original_l2_distance", "cf_l2_distance"]].replace([np.inf, -np.inf], np.nan).dropna()
+        if log_scale:
+            group = group[(group["original_l2_distance"] > 0) & (group["cf_l2_distance"] > 0)]
+        if len(group) < 2 or group["original_l2_distance"].nunique() < 2:
+            continue
+        sns.regplot(
+            data=group,
+            x="original_l2_distance",
+            y="cf_l2_distance",
+            scatter=False,
+            ci=None,
+            truncate=False,
+            ax=ax,
+            color=color,
+            line_kws={
+                "linewidth": 2,
+                "label": f"fit: {label}" if label is not None else "fit",
+            },
+        )
+
+
 def make_scatter_plots(pairwise_df: pd.DataFrame, figures_dir: Path) -> None:
     fig, ax = plt.subplots(figsize=(7, 6))
     sns.scatterplot(
@@ -353,6 +424,7 @@ def make_scatter_plots(pairwise_df: pd.DataFrame, figures_dir: Path) -> None:
         x="original_l2_distance",
         y="cf_l2_distance",
         hue="neighbor_rank",
+        style="neighbor_selection_regime" if pairwise_df["neighbor_selection_regime"].nunique() > 1 else None,
         palette="viridis",
         alpha=0.75,
         ax=ax,
@@ -371,6 +443,7 @@ def make_scatter_plots(pairwise_df: pd.DataFrame, figures_dir: Path) -> None:
             x="original_l2_distance",
             y="cf_l2_distance",
             hue="neighbor_rank",
+            style="neighbor_selection_regime" if positive_df["neighbor_selection_regime"].nunique() > 1 else None,
             palette="viridis",
             alpha=0.75,
             ax=ax,
@@ -392,6 +465,7 @@ def make_scatter_plots(pairwise_df: pd.DataFrame, figures_dir: Path) -> None:
                 x="original_l2_distance",
                 y="cf_l2_distance",
                 hue="neighbor_rank",
+                style="neighbor_selection_regime" if df["neighbor_selection_regime"].nunique() > 1 else None,
                 palette="viridis",
                 alpha=0.8,
                 ax=ax,
@@ -402,10 +476,57 @@ def make_scatter_plots(pairwise_df: pd.DataFrame, figures_dir: Path) -> None:
             ax.set_title(str(dataset))
             save_figure(fig, per_dataset_dir, f"scatter_original_vs_cf_distance_{dataset}")
 
+    scatter_kwargs = {}
+    if pairwise_df["neighbor_selection_regime"].nunique() > 1:
+        scatter_kwargs["hue"] = "neighbor_selection_regime"
+    fig, ax = plt.subplots(figsize=(7, 6))
+    sns.scatterplot(
+        data=pairwise_df,
+        x="original_l2_distance",
+        y="cf_l2_distance",
+        alpha=0.75,
+        ax=ax,
+        **scatter_kwargs,
+    )
+    add_diagonal(ax, pairwise_df["original_l2_distance"], pairwise_df["cf_l2_distance"])
+    add_regression_lines(ax, pairwise_df, log_scale=False)
+    ax.set_xlabel("Original L2 distance")
+    ax.set_ylabel("Counterfactual L2 distance")
+    ax.set_title("Original vs Counterfactual Distance Across All Neighbors")
+    save_figure(fig, figures_dir, "scatter_original_vs_cf_distance_all_neighbors")
+
+    if not positive_df.empty:
+        log_scatter_kwargs = {}
+        if positive_df["neighbor_selection_regime"].nunique() > 1:
+            log_scatter_kwargs["hue"] = "neighbor_selection_regime"
+        fig, ax = plt.subplots(figsize=(7, 6))
+        sns.scatterplot(
+            data=positive_df,
+            x="original_l2_distance",
+            y="cf_l2_distance",
+            alpha=0.75,
+            ax=ax,
+            **log_scatter_kwargs,
+        )
+        add_diagonal(ax, positive_df["original_l2_distance"], positive_df["cf_l2_distance"])
+        add_regression_lines(ax, positive_df, log_scale=True)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("Original L2 distance")
+        ax.set_ylabel("Counterfactual L2 distance")
+        ax.set_title("Original vs Counterfactual Distance Across All Neighbors (log scale)")
+        save_figure(fig, figures_dir, "scatter_original_vs_cf_distance_all_neighbors_log")
+
 
 def make_ratio_plots(pairwise_df: pd.DataFrame, figures_dir: Path) -> None:
     fig, ax = plt.subplots(figsize=(7, 5))
-    sns.boxplot(data=pairwise_df, x="neighbor_rank", y="cf_to_original_ratio", ax=ax)
+    sns.boxplot(
+        data=pairwise_df,
+        x="neighbor_rank",
+        y="cf_to_original_ratio",
+        hue="neighbor_selection_regime" if pairwise_df["neighbor_selection_regime"].nunique() > 1 else None,
+        ax=ax,
+    )
     ax.axhline(1.0, linestyle="--", color="black", linewidth=1)
     ax.set_xlabel("Neighbor rank")
     ax.set_ylabel("CF / original L2 distance ratio")
@@ -425,7 +546,13 @@ def make_ratio_plots(pairwise_df: pd.DataFrame, figures_dir: Path) -> None:
 
 def make_distance_difference_plots(pairwise_df: pd.DataFrame, figures_dir: Path) -> None:
     fig, ax = plt.subplots(figsize=(7, 5))
-    sns.boxplot(data=pairwise_df, x="neighbor_rank", y="distance_difference", ax=ax)
+    sns.boxplot(
+        data=pairwise_df,
+        x="neighbor_rank",
+        y="distance_difference",
+        hue="neighbor_selection_regime" if pairwise_df["neighbor_selection_regime"].nunique() > 1 else None,
+        ax=ax,
+    )
     ax.axhline(0.0, linestyle="--", color="black", linewidth=1)
     ax.set_xlabel("Neighbor rank")
     ax.set_ylabel("CF distance - original distance")
@@ -438,7 +565,10 @@ def make_rank_preservation_plot(anchor_df: pd.DataFrame, figures_dir: Path) -> N
     if plot_df.empty:
         return
     fig, ax = plt.subplots(figsize=(7, 5))
-    if plot_df["dataset"].nunique() > 1:
+    if plot_df["neighbor_selection_regime"].nunique() > 1:
+        sns.boxplot(data=plot_df, x="neighbor_selection_regime", y="cf_rank_preservation_spearman", ax=ax)
+        ax.tick_params(axis="x", rotation=20)
+    elif plot_df["dataset"].nunique() > 1:
         sns.boxplot(data=plot_df, x="dataset", y="cf_rank_preservation_spearman", ax=ax)
         ax.tick_params(axis="x", rotation=45)
     else:
@@ -468,6 +598,8 @@ def write_config(
     config = {
         "input_run_dirs": [str(path) for path in run_dirs],
         "dataset_filter": DATASET,
+        "experiment_name_filter": EXPERIMENT_NAME,
+        "neighbor_selection_regime_filter": NEIGHBOR_SELECTION_REGIME,
         "output_folder": str(output_dir),
         "epsilon": EPSILON,
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -481,21 +613,27 @@ def write_config(
         (output_dir / "skipped_pairs.txt").write_text("\n".join(skipped) + "\n")
 
 
-def main() -> None:
-    output_dir = OUTPUT_DIR
+def safe_name(value: str | None) -> str:
+    if value is None:
+        return "all"
+    return "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in str(value))
+
+
+def output_dir_for_run(run_dir: Path) -> Path:
+    dataset = run_dir.parents[2].name if len(run_dir.parents) >= 3 else "unknown_dataset"
+    regime = safe_name(NEIGHBOR_SELECTION_REGIME) if NEIGHBOR_SELECTION_REGIME is not None else "all_regimes"
+    return OUTPUT_DIR / safe_name(dataset) / safe_name(run_dir.name) / regime
+
+
+def output_dir_for_dataset_aggregate(dataset: str) -> Path:
+    regime = safe_name(NEIGHBOR_SELECTION_REGIME) if NEIGHBOR_SELECTION_REGIME is not None else "all_regimes"
+    return OUTPUT_DIR / safe_name(dataset) / "all_experiments" / regime
+
+
+def run_analysis(run_dirs: list[Path], output_dir: Path) -> None:
     tables_dir = output_dir / TABLES_DIRNAME
     figures_dir = output_dir / FIGURES_DIRNAME
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    run_dirs = EXPERIMENT_DIRS if EXPERIMENT_DIRS is not None else find_robustness_runs(dataset=DATASET)
-    run_dirs = [Path(path) for path in run_dirs]
-    if not run_dirs:
-        dataset_msg = "all datasets" if DATASET is None else f"dataset={DATASET}"
-        raise FileNotFoundError(
-            f"No robustness runs found for {dataset_msg}. Expected folders containing "
-            "anchor_neighbor_relationships.csv and explained_instances.csv under "
-            f"{RESULTS_ROOT}/*/{MODEL_TO_EXPLAIN}/{EXPERIMENT_FAMILY}/."
-        )
 
     print(f"Found {len(run_dirs)} robustness run(s).")
     pairwise_frames = []
@@ -523,9 +661,47 @@ def main() -> None:
 
     print("Outputs written to:", output_dir)
     print(f"Pairs loaded: {len(pairwise_df)}")
-    print(f"Anchors loaded: {anchor_df[['dataset', 'anchor_test_index']].drop_duplicates().shape[0]}")
+    print(f"Anchors loaded: {anchor_df[['dataset', 'experiment_name', 'neighbor_selection_regime', 'anchor_test_index']].drop_duplicates().shape[0]}")
     if skipped:
         print(f"Skipped pairs: {len(skipped)}. See {output_dir / 'skipped_pairs.txt'}")
+
+
+def main() -> None:
+    run_dirs = EXPERIMENT_DIRS if EXPERIMENT_DIRS is not None else find_robustness_runs(
+        dataset=DATASET,
+        experiment_name=EXPERIMENT_NAME,
+    )
+    run_dirs = [Path(path) for path in run_dirs]
+    if not run_dirs:
+        dataset_msg = "all datasets" if DATASET is None else f"dataset={DATASET}"
+        experiment_msg = "all experiments" if EXPERIMENT_NAME is None else f"experiment={EXPERIMENT_NAME}"
+        raise FileNotFoundError(
+            f"No robustness runs found for {dataset_msg}, {experiment_msg}. Expected folders containing "
+            "anchor_neighbor_relationships.csv and explained_instances.csv under "
+            f"{RESULTS_ROOT}/*/{MODEL_TO_EXPLAIN}/{EXPERIMENT_FAMILY}/."
+        )
+
+    aggregate_globally = (
+        DATASET is None
+        and EXPERIMENT_NAME is None
+        and NEIGHBOR_SELECTION_REGIME is None
+        and EXPERIMENT_DIRS is None
+    )
+    if aggregate_globally:
+        run_analysis(run_dirs, OUTPUT_DIR / "global")
+        return
+
+    if (
+        AGGREGATE_EXPERIMENTS_WITHIN_DATASET
+        and DATASET is not None
+        and EXPERIMENT_NAME is None
+        and EXPERIMENT_DIRS is None
+    ):
+        run_analysis(run_dirs, output_dir_for_dataset_aggregate(DATASET))
+        return
+
+    for run_dir in run_dirs:
+        run_analysis([run_dir], output_dir_for_run(run_dir))
 
 
 if __name__ == "__main__":
