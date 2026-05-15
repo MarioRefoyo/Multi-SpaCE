@@ -22,3 +22,9 @@ lightning_logs/
 *.ckpt
 experiments/evaluation/ecg_morphology_outputs/*
 experiments/evaluation/robustness_analysis_outputs/*
+experiments/evaluation/cd_plots
+experiments/evaluation/cd_plots_multi/*
+experiments/evaluation/cd_plots_uni/*
+experiments/evaluation/cd_plots_uni_time/*
+experiments/evaluation/nun_atypicality_analysis/*
+*.pickle

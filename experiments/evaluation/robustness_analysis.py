@@ -37,10 +37,14 @@ from tqdm import tqdm
 RESULTS_ROOT = Path("experiments/results")
 MODEL_TO_EXPLAIN = "inceptiontime_noscaling"
 EXPERIMENT_FAMILY = "multisubspace_v2_robustness"
-DATASET = "ArticularyWordRecognition"  # Example: "ArticularyWordRecognition". Leave as None to analyze all discovered datasets.
+DATASET = "ArticularyWordRecognition"  # Backward-compatible single dataset selector. Ignored when DATASETS is not None.
+DATASETS: list[str] | None = None  # Example: ["BasicMotions", "NATOPS"]. Leave as None to use DATASET or discover all.
 EXPERIMENT_NAME = None  # Example: "v2_...". Leave as None to include all matching runs.
 NEIGHBOR_SELECTION_REGIME = None  # Example: "free" or "same_nun_target". Leave as None to keep all regimes separate in tables.
-AGGREGATE_EXPERIMENTS_WITHIN_DATASET = False
+AGGREGATE_EXPERIMENTS_WITHIN_DATASET = True
+WRITE_GLOBAL_AGGREGATE = True
+WRITE_GLOBAL_BY_REGIME = True
+REGIMES_FOR_GLOBAL_OUTPUTS = ["free", "same_nun_target"]
 EXPERIMENT_DIRS: list[Path] | None = None
 OUTPUT_DIR = Path("experiments/evaluation/robustness_analysis_outputs")
 
@@ -83,7 +87,7 @@ def find_robustness_runs(
     return runs
 
 
-def load_relationships(run_dir: Path) -> pd.DataFrame:
+def load_relationships(run_dir: Path, regime_filter: str | None = None) -> pd.DataFrame:
     path = run_dir / "anchor_neighbor_relationships.csv"
     if not path.is_file():
         raise FileNotFoundError(f"Missing relationship table: {path}")
@@ -104,8 +108,8 @@ def load_relationships(run_dir: Path) -> pd.DataFrame:
         df = df.drop_duplicates(
             ["dataset", "neighbor_selection_regime", "anchor_test_index", "neighbor_test_index", "neighbor_rank"]
         )
-    if NEIGHBOR_SELECTION_REGIME is not None:
-        df = df[df["neighbor_selection_regime"] == NEIGHBOR_SELECTION_REGIME].copy()
+    if regime_filter is not None:
+        df = df[df["neighbor_selection_regime"] == regime_filter].copy()
     return df
 
 
@@ -153,8 +157,9 @@ def compute_l2(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.linalg.norm(np.asarray(a).reshape(-1) - np.asarray(b).reshape(-1), ord=2))
 
 
-def build_pairwise_table(run_dir: Path, epsilon: float = EPSILON) -> tuple[pd.DataFrame, list[str]]:
-    relationships = load_relationships(run_dir)
+def build_pairwise_table(run_dir: Path, epsilon: float = EPSILON,
+                         regime_filter: str | None = None) -> tuple[pd.DataFrame, list[str]]:
+    relationships = load_relationships(run_dir, regime_filter=regime_filter)
     instances = load_instances(run_dir)
     instance_lookup = {
         (str(row["dataset"]), int(row["test_index"])): row
@@ -594,12 +599,13 @@ def write_config(
     pairwise_df: pd.DataFrame,
     anchor_df: pd.DataFrame,
     skipped: list[str],
+    regime_filter: str | None = None,
 ) -> None:
     config = {
         "input_run_dirs": [str(path) for path in run_dirs],
-        "dataset_filter": DATASET,
+        "dataset_filter": DATASETS if DATASETS is not None else DATASET,
         "experiment_name_filter": EXPERIMENT_NAME,
-        "neighbor_selection_regime_filter": NEIGHBOR_SELECTION_REGIME,
+        "neighbor_selection_regime_filter": regime_filter,
         "output_folder": str(output_dir),
         "epsilon": EPSILON,
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -619,18 +625,32 @@ def safe_name(value: str | None) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in str(value))
 
 
-def output_dir_for_run(run_dir: Path) -> Path:
+def regime_folder_name(regime_filter: str | None = None) -> str:
+    return safe_name(regime_filter) if regime_filter is not None else "all_regimes"
+
+
+def output_dir_for_run(run_dir: Path, regime_filter: str | None = None) -> Path:
     dataset = run_dir.parents[2].name if len(run_dir.parents) >= 3 else "unknown_dataset"
-    regime = safe_name(NEIGHBOR_SELECTION_REGIME) if NEIGHBOR_SELECTION_REGIME is not None else "all_regimes"
-    return OUTPUT_DIR / safe_name(dataset) / safe_name(run_dir.name) / regime
+    return OUTPUT_DIR / safe_name(dataset) / safe_name(run_dir.name) / regime_folder_name(regime_filter)
 
 
-def output_dir_for_dataset_aggregate(dataset: str) -> Path:
-    regime = safe_name(NEIGHBOR_SELECTION_REGIME) if NEIGHBOR_SELECTION_REGIME is not None else "all_regimes"
-    return OUTPUT_DIR / safe_name(dataset) / "all_experiments" / regime
+def output_dir_for_dataset_aggregate(dataset: str, regime_filter: str | None = None) -> Path:
+    return OUTPUT_DIR / safe_name(dataset) / "all_experiments" / regime_folder_name(regime_filter)
 
 
-def run_analysis(run_dirs: list[Path], output_dir: Path) -> None:
+def output_dir_for_global_aggregate(regime_filter: str | None = None) -> Path:
+    return OUTPUT_DIR / "global" / regime_folder_name(regime_filter)
+
+
+def configured_datasets() -> list[str] | None:
+    if DATASETS is not None:
+        return list(DATASETS)
+    if DATASET is not None:
+        return [DATASET]
+    return None
+
+
+def run_analysis(run_dirs: list[Path], output_dir: Path, regime_filter: str | None = None) -> None:
     tables_dir = output_dir / TABLES_DIRNAME
     figures_dir = output_dir / FIGURES_DIRNAME
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -640,7 +660,7 @@ def run_analysis(run_dirs: list[Path], output_dir: Path) -> None:
     skipped: list[str] = []
     for run_dir in run_dirs:
         print("Loading:", run_dir)
-        pairwise_df, skipped_run = build_pairwise_table(run_dir, epsilon=EPSILON)
+        pairwise_df, skipped_run = build_pairwise_table(run_dir, epsilon=EPSILON, regime_filter=regime_filter)
         if not pairwise_df.empty:
             pairwise_frames.append(pairwise_df)
         skipped.extend(skipped_run)
@@ -655,7 +675,7 @@ def run_analysis(run_dirs: list[Path], output_dir: Path) -> None:
     write_dataframe(pairwise_df, tables_dir / "pairwise_robustness_distances.csv")
     write_dataframe(anchor_df, tables_dir / "anchor_level_robustness_summary.csv")
     write_dataframe(dataset_df, tables_dir / "dataset_level_robustness_summary.csv")
-    write_config(output_dir, run_dirs, pairwise_df, anchor_df, skipped)
+    write_config(output_dir, run_dirs, pairwise_df, anchor_df, skipped, regime_filter=regime_filter)
 
     make_plots(pairwise_df, anchor_df, figures_dir)
 
@@ -667,41 +687,66 @@ def run_analysis(run_dirs: list[Path], output_dir: Path) -> None:
 
 
 def main() -> None:
-    run_dirs = EXPERIMENT_DIRS if EXPERIMENT_DIRS is not None else find_robustness_runs(
-        dataset=DATASET,
-        experiment_name=EXPERIMENT_NAME,
-    )
-    run_dirs = [Path(path) for path in run_dirs]
-    if not run_dirs:
-        dataset_msg = "all datasets" if DATASET is None else f"dataset={DATASET}"
-        experiment_msg = "all experiments" if EXPERIMENT_NAME is None else f"experiment={EXPERIMENT_NAME}"
+    if EXPERIMENT_DIRS is not None:
+        run_dirs = [Path(path) for path in EXPERIMENT_DIRS]
+        if NEIGHBOR_SELECTION_REGIME is None:
+            run_analysis(run_dirs, OUTPUT_DIR / "configured_paths" / "all_regimes")
+        else:
+            run_analysis(run_dirs, OUTPUT_DIR / "configured_paths" / safe_name(NEIGHBOR_SELECTION_REGIME),
+                         regime_filter=NEIGHBOR_SELECTION_REGIME)
+        return
+
+    datasets = configured_datasets()
+    all_run_dirs: list[Path] = []
+
+    if datasets is None:
+        run_dirs = find_robustness_runs(dataset=None, experiment_name=EXPERIMENT_NAME)
+        if not run_dirs:
+            raise FileNotFoundError(
+                f"No robustness runs found under {RESULTS_ROOT}/*/{MODEL_TO_EXPLAIN}/{EXPERIMENT_FAMILY}/."
+            )
+        all_run_dirs = run_dirs
+        if NEIGHBOR_SELECTION_REGIME is None:
+            run_analysis(run_dirs, output_dir_for_global_aggregate())
+            if WRITE_GLOBAL_BY_REGIME:
+                for regime in REGIMES_FOR_GLOBAL_OUTPUTS:
+                    run_analysis(run_dirs, output_dir_for_global_aggregate(regime), regime_filter=regime)
+        else:
+            run_analysis(run_dirs, output_dir_for_global_aggregate(NEIGHBOR_SELECTION_REGIME),
+                         regime_filter=NEIGHBOR_SELECTION_REGIME)
+        return
+
+    for dataset in datasets:
+        dataset_run_dirs = find_robustness_runs(dataset=dataset, experiment_name=EXPERIMENT_NAME)
+        if not dataset_run_dirs:
+            warnings.warn(f"No robustness runs found for dataset={dataset}; skipping.")
+            continue
+        all_run_dirs.extend(dataset_run_dirs)
+        if AGGREGATE_EXPERIMENTS_WITHIN_DATASET and EXPERIMENT_NAME is None:
+            if NEIGHBOR_SELECTION_REGIME is None:
+                run_analysis(dataset_run_dirs, output_dir_for_dataset_aggregate(dataset))
+            else:
+                run_analysis(dataset_run_dirs, output_dir_for_dataset_aggregate(dataset, NEIGHBOR_SELECTION_REGIME),
+                             regime_filter=NEIGHBOR_SELECTION_REGIME)
+        else:
+            for run_dir in dataset_run_dirs:
+                run_analysis([run_dir], output_dir_for_run(run_dir, NEIGHBOR_SELECTION_REGIME),
+                             regime_filter=NEIGHBOR_SELECTION_REGIME)
+
+    if not all_run_dirs:
         raise FileNotFoundError(
-            f"No robustness runs found for {dataset_msg}, {experiment_msg}. Expected folders containing "
-            "anchor_neighbor_relationships.csv and explained_instances.csv under "
-            f"{RESULTS_ROOT}/*/{MODEL_TO_EXPLAIN}/{EXPERIMENT_FAMILY}/."
+            f"No robustness runs found for configured datasets={datasets}, experiment={EXPERIMENT_NAME}."
         )
 
-    aggregate_globally = (
-        DATASET is None
-        and EXPERIMENT_NAME is None
-        and NEIGHBOR_SELECTION_REGIME is None
-        and EXPERIMENT_DIRS is None
-    )
-    if aggregate_globally:
-        run_analysis(run_dirs, OUTPUT_DIR / "global")
-        return
-
-    if (
-        AGGREGATE_EXPERIMENTS_WITHIN_DATASET
-        and DATASET is not None
-        and EXPERIMENT_NAME is None
-        and EXPERIMENT_DIRS is None
-    ):
-        run_analysis(run_dirs, output_dir_for_dataset_aggregate(DATASET))
-        return
-
-    for run_dir in run_dirs:
-        run_analysis([run_dir], output_dir_for_run(run_dir))
+    if WRITE_GLOBAL_AGGREGATE:
+        if NEIGHBOR_SELECTION_REGIME is None:
+            run_analysis(all_run_dirs, output_dir_for_global_aggregate())
+            if WRITE_GLOBAL_BY_REGIME:
+                for regime in REGIMES_FOR_GLOBAL_OUTPUTS:
+                    run_analysis(all_run_dirs, output_dir_for_global_aggregate(regime), regime_filter=regime)
+        else:
+            run_analysis(all_run_dirs, output_dir_for_global_aggregate(NEIGHBOR_SELECTION_REGIME),
+                         regime_filter=NEIGHBOR_SELECTION_REGIME)
 
 
 if __name__ == "__main__":

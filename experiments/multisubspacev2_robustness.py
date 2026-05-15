@@ -30,9 +30,13 @@ from methods.outlier_calculators import AEOutlierCalculator
 
 
 DATASETS = [
-    "ArticularyWordRecognition",
-    # "SelfRegulationSCP1",
-    
+    # "BasicMotions", "NATOPS", "UWaveGestureLibrary",
+    # "ArticularyWordRecognition", 
+    # 'Cricket',
+    'Epilepsy',# 'PenDigits',
+    'RacketSports',
+    # 'SelfRegulationSCP1',
+    # 'PEMS-SF',
 ]
 
 EXPERIMENT_FAMILY = "multisubspace_v2_robustness"
@@ -48,7 +52,7 @@ N_ANCHORS = 50
 K_NEIGHBORS = 3
 ROBUSTNESS_RANDOM_SEED = 24
 DISTANCE = "euclidean_flat"
-NEIGHBOR_SELECTION_REGIMES = ["free", "same_nun_target"]
+NEIGHBOR_SELECTION_REGIMES = ["same_nun_target"]
 MULTIPROCESSING = True
 POOL_SIZE = 20
 MP_START_METHOD = "spawn"

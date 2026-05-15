@@ -30,6 +30,17 @@ class MOEvolutionaryOptimizer(ABC):
         # self.ts_length_orig = None
         # self.uses_reduced_mask = False
 
+    def increase_init_pct(self):
+        if self.init_pct >= 1:
+            self.init_pct = 1
+            return
+        next_init_pct = self.init_pct + 0.2
+        if next_init_pct >= 1 and not self.tried_almost_full_init:
+            self.init_pct = 0.95
+            self.tried_almost_full_init = True
+        else:
+            self.init_pct = min(1, next_init_pct)
+
     def get_mask_shape(self):
         if self.individual_channel_search:
             return self.population_size, self.ts_length, self.n_features
@@ -76,6 +87,7 @@ class MOEvolutionaryOptimizer(ABC):
         self.outlier_calculator = outlier_calculator
         self.importance_heatmap = importance_heatmap
         self.init_pct = copy.deepcopy(self.original_init_pct)
+        self.tried_almost_full_init = False
         self.init_mask = init_mask
 
         # Compute initial outlier scores when plausibility is enabled. Otherwise, use zeros so the
@@ -522,7 +534,7 @@ class MOEvolutionaryOptimizer(ABC):
                 print('Failed to find a valid counterfactual in 50 iterations. '
                       f'Restarting process with more activations in init. Current init_pct: {self.init_pct:.2f}')
                 iteration = 0
-                self.init_pct = self.init_pct + 0.2
+                self.increase_init_pct()
                 try:
                     self.population = self.init_population(self.importance_heatmap)
                 except Exception as e:
@@ -550,7 +562,7 @@ class MOEvolutionaryOptimizer(ABC):
                     print(f'Final prob {best_classification_prob:.2f}, class {predicted_class}. '
                           'Restarting process with more activations in init.')
                     iteration = 0
-                    self.init_pct = self.init_pct + 0.2
+                    self.increase_init_pct()
                     try:
                         self.population = self.init_population(self.importance_heatmap)
                     except Exception:

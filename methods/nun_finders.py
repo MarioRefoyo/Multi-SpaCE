@@ -149,6 +149,35 @@ class SecondBestGlobalNUNFinder(TargetClassGlobalNUNFinder):
         super().__init__(X_train, y_train, y_pred, distance, from_true_labels, backend)
         self.model = model
 
+    def get_available_second_best_labels(self, predicted_probs, original_labels):
+        if predicted_probs.ndim != 2:
+            raise ValueError(f"Expected model probabilities with shape (n_instances, n_classes), got {predicted_probs.shape}")
+        if original_labels is None:
+            original_labels = np.argmax(predicted_probs, axis=1)
+        original_labels = np.atleast_1d(np.asarray(original_labels, dtype=int))
+        if len(original_labels) != len(predicted_probs):
+            raise ValueError(
+                f"Expected {len(predicted_probs)} original labels, got {len(original_labels)}"
+            )
+
+        available_labels = np.array([
+            label for label in self.same_class_knn_dict.keys()
+            if isinstance(label, (int, np.integer)) and 0 <= int(label) < predicted_probs.shape[1]
+        ], dtype=int)
+        if len(available_labels) == 0:
+            raise ValueError("No target-class NUNs can be retrieved because no available class has fitted neighbors.")
+
+        masked_probs = np.full(predicted_probs.shape, -np.inf)
+        masked_probs[:, available_labels] = predicted_probs[:, available_labels]
+        if np.any((original_labels < 0) | (original_labels >= predicted_probs.shape[1])):
+            raise ValueError("Original labels must be valid class indexes for the model probabilities.")
+        masked_probs[np.arange(len(masked_probs)), original_labels] = -np.inf
+
+        best_labels = np.argmax(masked_probs, axis=1)
+        if np.any(~np.isfinite(masked_probs[np.arange(len(masked_probs)), best_labels])):
+            raise ValueError("No available second-best target class remains after excluding the original labels.")
+        return best_labels
+
     def retrieve_nuns(self, x_origs, original_labels=None):
         # Match parent behavior for a single sample input before asking the model for probabilities.
         if len(x_origs.shape) != 3:
@@ -161,7 +190,7 @@ class SecondBestGlobalNUNFinder(TargetClassGlobalNUNFinder):
             x_origs = np.expand_dims(x_origs, axis=0)
 
         predicted_probs = self.model.predict(x_origs)
-        second_best_labels = np.argsort(predicted_probs, axis=1)[:, -2]
+        second_best_labels = self.get_available_second_best_labels(predicted_probs, original_labels)
         return super().retrieve_nuns(x_origs, second_best_labels)
 
 

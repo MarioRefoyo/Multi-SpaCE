@@ -3,6 +3,7 @@ import copy
 import pickle
 import json
 import inspect
+import warnings
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -19,11 +20,32 @@ from methods.MultiSubSpaCE.FitnessFunctions import fitness_function_mo, fitness_
 from experiments.experiment_utils import load_model
 
 
+RESULTS_DATASET_ALIASES = {
+    "Coffee": "coffee",
+    "Gunpoint": "gunpoint",
+}
+
+
 def get_results_dir(dataset, model_to_explain, experiment_family=None):
-    results_dir = Path("./experiments/results") / dataset / model_to_explain
+    results_dataset = RESULTS_DATASET_ALIASES.get(dataset, dataset)
+    results_dir = Path("./experiments/results") / results_dataset / model_to_explain
     if experiment_family is not None:
         results_dir = results_dir / experiment_family
     return results_dir
+
+
+def resolve_method_key(method_rel_path, methods):
+    """Return the configured method key for a result path.
+
+    Keys may be either a bare experiment hash or a family-qualified path like
+    "experiment_family/experiment_hash". Exact family-qualified keys win.
+    """
+    qualified_key = method_rel_path.as_posix()
+    if qualified_key in methods:
+        return qualified_key
+    if method_rel_path.name in methods:
+        return method_rel_path.name
+    return None
 
 
 def find_cf_solution_dirs(results_dir, methods):
@@ -45,18 +67,58 @@ def find_cf_solution_dirs(results_dir, methods):
                 cf_solution_dirs.append(child_path.relative_to(results_dir))
 
     valid_cf_solution_dirs = []
+    matched_method_keys = set()
     for rel_path in cf_solution_dirs:
-        method_key = rel_path.name
+        method_key = resolve_method_key(rel_path, methods)
         method_results_dir = results_dir / rel_path
-        if method_key not in methods:
+        if method_key is None:
+            continue
+        if method_key in matched_method_keys:
             continue
         if not (method_results_dir / 'counterfactuals.pickle').is_file():
             continue
         if not (method_results_dir / 'params.json').is_file():
             continue
         valid_cf_solution_dirs.append(rel_path)
+        matched_method_keys.add(method_key)
 
     return valid_cf_solution_dirs
+
+
+def raise_no_cf_solution_dirs_error(dataset, results_dir, methods):
+    requested = ", ".join(sorted(methods.keys())) or "<none>"
+    available = []
+    if results_dir.is_dir():
+        for path in sorted(results_dir.iterdir()):
+            if not path.is_dir():
+                continue
+            if (path / 'counterfactuals.pickle').is_file() and (path / 'params.json').is_file():
+                available.append(path.name)
+            for child_path in sorted(path.iterdir()):
+                if not child_path.is_dir():
+                    continue
+                if (child_path / 'counterfactuals.pickle').is_file() and (child_path / 'params.json').is_file():
+                    available.append(child_path.relative_to(results_dir).as_posix())
+    available_msg = ", ".join(available[:20]) if available else "<none>"
+    if len(available) > 20:
+        available_msg += f", ... ({len(available)} total)"
+    raise FileNotFoundError(
+        f"No valid counterfactual result folders found for dataset '{dataset}' in {results_dir}. "
+        f"Requested method keys: {requested}. Available valid keys include: {available_msg}."
+    )
+
+
+def warn_missing_cf_solution_dirs(dataset, valid_cf_solution_dirs, methods):
+    matched_method_keys = {
+        resolve_method_key(method_rel_path, methods)
+        for method_rel_path in valid_cf_solution_dirs
+    }
+    missing_method_keys = sorted(set(methods.keys()) - matched_method_keys)
+    if missing_method_keys:
+        warnings.warn(
+            f"Dataset '{dataset}' is missing result folders for requested method keys: "
+            f"{missing_method_keys}. These methods will be skipped for this dataset."
+        )
 
 
 def get_start_end_subsequence_positions(orig_change_mask):
@@ -245,7 +307,8 @@ def apply_quantile_penalization(results_df, penalization_quantile):
     metric_columns = [
         column for column in results_df.columns
         if column not in {
-            "ii", "valid", "nuns_valid", "times", "method", "best cf index", "order", "dataset"
+            "ii", "valid", "nuns_valid", "cf_equals_nun", "times", "method",
+            "best cf index", "order", "dataset"
         }
     ]
 
@@ -391,10 +454,13 @@ def calculate_metrics_for_dataset_mp(dataset, methods, model_to_explain,
 
     results_dir = get_results_dir(dataset, model_to_explain, experiment_family)
     valid_cf_solution_dirs = find_cf_solution_dirs(results_dir, methods)
+    if not valid_cf_solution_dirs:
+        raise_no_cf_solution_dirs_error(dataset, results_dir, methods)
+    warn_missing_cf_solution_dirs(dataset, valid_cf_solution_dirs, methods)
 
     # Prepare arguments for parallel processing
     args = [
-        (dataset, method_rel_path.name, results_dir / method_rel_path, methods, model_wrapper, outlier_calculators, X_test,
+        (dataset, resolve_method_key(method_rel_path, methods), results_dir / method_rel_path, methods, model_wrapper, outlier_calculators, X_test,
          original_classes, possible_nuns, mo_weights, i + 1)
         for i, method_rel_path in enumerate(valid_cf_solution_dirs)
     ]
@@ -432,10 +498,13 @@ def calculate_metrics_for_dataset(dataset, methods, model_to_explain,
     results_df = pd.DataFrame()
     results_dir = get_results_dir(dataset, model_to_explain, experiment_family)
     valid_cf_solution_dirs = find_cf_solution_dirs(results_dir, methods)
+    if not valid_cf_solution_dirs:
+        raise_no_cf_solution_dirs_error(dataset, results_dir, methods)
+    warn_missing_cf_solution_dirs(dataset, valid_cf_solution_dirs, methods)
     method_cfs_dataset = {}
     common_test_indexes = list(range(len(X_test)))
     for i, method_rel_path in enumerate(valid_cf_solution_dirs):
-        method_dir_name = method_rel_path.name
+        method_dir_name = resolve_method_key(method_rel_path, methods)
         method_results_dir = results_dir / method_rel_path
         # Load solution cfs
         with open(method_results_dir / 'counterfactuals.pickle', 'rb') as f:
@@ -762,12 +831,15 @@ def obtain_cfs_objectives(dataset, methods, model_to_explain,
 
     results_dir = get_results_dir(dataset, model_to_explain, experiment_family)
     valid_cf_solution_dirs = find_cf_solution_dirs(results_dir, methods)
+    if not valid_cf_solution_dirs:
+        raise_no_cf_solution_dirs_error(dataset, results_dir, methods)
+    warn_missing_cf_solution_dirs(dataset, valid_cf_solution_dirs, methods)
     method_cfs_dataset_dict = {}
     method_objectives_dataset_dict = {}
     method_test_indexes_dict = {}
     common_test_indexes = list(range(len(X_test)))
     for i, method_rel_path in enumerate(valid_cf_solution_dirs):
-        method_dir_name = method_rel_path.name
+        method_dir_name = resolve_method_key(method_rel_path, methods)
         method_results_dir = results_dir / method_rel_path
         # Load solution cfs
         with open(method_results_dir / 'counterfactuals.pickle', 'rb') as f:
@@ -991,6 +1063,7 @@ def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, s
     pred_classes = []
     selected_utility_scores = []
     ion_scores = []
+    cf_equals_nun = []
     if nuns[0] is not None:
         desired_classes = np.argmax(model_wrapper.predict(nuns), axis=1)
     else:
@@ -1094,6 +1167,12 @@ def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, s
             nun_utility_score = (nun_objective_fitness * mo_weights).sum(axis=1)[0]
             ion_score = selected_utility_score - nun_utility_score
 
+        if nuns[i] is None:
+            cf_equals_nun.append(False)
+        else:
+            x_nun_i = np.asarray(nuns[i]).reshape(length, n_channels)
+            cf_equals_nun.append(np.array_equal(counterfactual_i, x_nun_i))
+
         # Predict counterfactual class probability
         preds = model_wrapper.predict(counterfactual_i)
         pred_class = np.argmax(preds, axis=1)[0]
@@ -1178,6 +1257,7 @@ def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, s
     results["target_class"] = desired_classes if desired_classes is not None else [np.nan] * len(X_test)
     results["valid"] = valids
     results["nuns_valid"] = valid_nuns
+    results["cf_equals_nun"] = cf_equals_nun
     # Create column for Outlier Scores for every calculator
     for oc_name, outlier_scores in outlier_scores_dict.items():
         outlier_scores = np.array(outlier_scores)
@@ -1189,6 +1269,12 @@ def calculate_method_metrics(model_wrapper, outlier_calculators, X_test, nuns, s
     results['subsequences'] = n_subsequences
     results['subsequences %'] = np.array(n_subsequences) / ((length * n_channels) / 2)
     results['(sparsity + subsequences %) / 2'] = (
+        results['sparsity'] + results['subsequences %']**1
+    ) / 2
+    results['(sparsity + subsequences % ** 0.5) / 2'] = (
+        results['sparsity'] + results['subsequences %']**0.5
+    ) / 2
+    results['(sparsity + subsequences % ** 0.25) / 2'] = (
         results['sparsity'] + results['subsequences %']**0.25
     ) / 2
     results['times'] = execution_times
@@ -1611,6 +1697,19 @@ def summarize_target_pairwise_comparisons(
     return summary_df, detailed_tables
 
 
+def sort_average_ranks_for_cd_plot(avg_ranks):
+    order_df = pd.DataFrame({
+        "avg_rank": avg_ranks,
+        "method_name": avg_ranks.index.map(str),
+    })
+    order_df = order_df.sort_values(
+        ["avg_rank", "method_name"],
+        ascending=[True, False],
+        kind="mergesort",
+    )
+    return avg_ranks.loc[order_df.index]
+
+
 def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_metrics=None,
                                           alpha=0.05, method_order=None, metric_name_map=None,
                                           posthoc="nemenyi",
@@ -1620,6 +1719,10 @@ def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_
                                           rank_col_suffix="_rank",
                                           drop_incomplete_rank_datasets=False,
                                           method_name_map=None,
+                                          reference_only_methods=None,
+                                          reference_only_label_suffix="*",
+                                          reference_only_color="0.45",
+                                          reference_only_linestyle="--",
                                           highlight_method=None,
                                           highlight_method_color="tab:blue",
                                           highlight_method_fontsize=None,
@@ -1655,6 +1758,7 @@ def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_
     higher_is_better_metrics = set(higher_is_better_metrics or [])
     metric_name_map = metric_name_map or {}
     method_name_map = method_name_map or {}
+    reference_only_methods = set(reference_only_methods or [])
     rank_source_df = ranked_results_df if ranked_results_df is not None else results_df
     valid_tie_methods = {"average", "min", "max", "dense", "first"}
     if rank_tie_method not in valid_tie_methods:
@@ -1685,8 +1789,17 @@ def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_
             if ordered_cols:
                 metric_matrix_all = metric_matrix_all[ordered_cols]
 
+        reference_methods_present = [
+            m for m in metric_matrix_all.columns
+            if m in reference_only_methods
+        ]
+        significance_metric_matrix_all = metric_matrix_all.drop(
+            columns=reference_methods_present,
+            errors="ignore",
+        )
+
         available_datasets = metric_matrix_all.index.tolist()
-        metric_matrix = metric_matrix_all.dropna(axis=0, how="any")
+        metric_matrix = significance_metric_matrix_all.dropna(axis=0, how="any")
         used_datasets = metric_matrix.index.tolist()
         dropped_datasets = sorted(set(available_datasets) - set(used_datasets))
         rank_matrix = metric_matrix.rank(
@@ -1701,6 +1814,8 @@ def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_
             )
             continue
 
+        reference_avg_ranks = pd.Series(dtype=float)
+        reference_rank_counts = {}
         if use_precomputed_ranks:
             rank_col = f"{metric}{rank_col_suffix}"
             if rank_col not in rank_source_df.columns:
@@ -1718,13 +1833,46 @@ def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_
                 ordered_rank_cols = [m for m in method_order if m in rank_matrix_for_plot.columns]
                 if ordered_rank_cols:
                     rank_matrix_for_plot = rank_matrix_for_plot[ordered_rank_cols]
+
+            reference_rank_cols = [
+                m for m in rank_matrix_for_plot.columns
+                if m in reference_only_methods
+            ]
+            if reference_rank_cols:
+                reference_avg_ranks = rank_matrix_for_plot[reference_rank_cols].mean(axis=0, skipna=True)
+                reference_avg_ranks = sort_average_ranks_for_cd_plot(reference_avg_ranks)
+                reference_avg_ranks = reference_avg_ranks[
+                    np.isfinite(reference_avg_ranks.to_numpy(dtype=float))
+                ]
+                reference_rank_counts = rank_matrix_for_plot[reference_avg_ranks.index].count().to_dict()
+
+            rank_matrix_for_plot = rank_matrix_for_plot.drop(
+                columns=reference_rank_cols,
+                errors="ignore",
+            )
             if drop_incomplete_rank_datasets:
                 rank_matrix_for_plot = rank_matrix_for_plot.dropna(axis=0, how="any")
 
-            avg_ranks = rank_matrix_for_plot.mean(axis=0, skipna=True).sort_values()
+            avg_ranks = sort_average_ranks_for_cd_plot(rank_matrix_for_plot.mean(axis=0, skipna=True))
             avg_ranks = avg_ranks[np.isfinite(avg_ranks.to_numpy(dtype=float))]
         else:
-            avg_ranks = rank_matrix.mean(axis=0).sort_values()
+            if reference_methods_present:
+                reference_rank_matrix = metric_matrix_all.rank(
+                    axis=1,
+                    method=rank_tie_method,
+                    ascending=not higher_is_better
+                )
+                reference_avg_ranks = reference_rank_matrix[reference_methods_present].mean(
+                    axis=0,
+                    skipna=True,
+                )
+                reference_avg_ranks = sort_average_ranks_for_cd_plot(reference_avg_ranks)
+                reference_avg_ranks = reference_avg_ranks[
+                    np.isfinite(reference_avg_ranks.to_numpy(dtype=float))
+                ]
+                reference_rank_counts = reference_rank_matrix[reference_avg_ranks.index].count().to_dict()
+
+            avg_ranks = sort_average_ranks_for_cd_plot(rank_matrix.mean(axis=0))
 
         samples = [rank_matrix[col].to_numpy() for col in rank_matrix.columns]
         friedman_stat, friedman_p = friedmanchisquare(*samples)
@@ -1764,14 +1912,39 @@ def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_
         avg_ranks_plot = avg_ranks.copy()
         avg_ranks_plot.index = plot_method_names
 
+        reference_avg_ranks_plot = reference_avg_ranks.copy()
+        reference_plot_method_names = []
+        if not reference_avg_ranks_plot.empty:
+            reference_plot_method_names = [
+                f"{method_name_map.get(m, m)}{reference_only_label_suffix}"
+                for m in reference_avg_ranks_plot.index
+            ]
+            if set(reference_plot_method_names) & set(plot_method_names):
+                raise ValueError(
+                    "reference_only_label_suffix/method_name_map produces duplicate plot labels. "
+                    "Please choose a suffix or display names that keep reference-only labels unique."
+                )
+            reference_avg_ranks_plot.index = reference_plot_method_names
+            avg_ranks_plot = sort_average_ranks_for_cd_plot(
+                pd.concat([avg_ranks_plot, reference_avg_ranks_plot])
+            )
+
         # scikit-posthocs 0.8.x re-thresholds the p-value matrix at a fixed
         # alpha=0.05 inside critical_difference_diagram(). Encode the requested
         # alpha into a p-value-like matrix so plotting matches the test setting.
-        sig_matrix_plot = pd.DataFrame(
+        sig_matrix_plot_base = pd.DataFrame(
             np.where(significant_mask, 0.001, 1.0),
             index=[method_name_map.get(m, m) for m in sig_matrix.index],
             columns=[method_name_map.get(m, m) for m in sig_matrix.columns],
         )
+        np.fill_diagonal(sig_matrix_plot_base.values, 1.0)
+        sig_matrix_plot = pd.DataFrame(
+            0.001,
+            index=avg_ranks_plot.index,
+            columns=avg_ranks_plot.index,
+        )
+        normal_plot_method_names = sig_matrix_plot_base.index.tolist()
+        sig_matrix_plot.loc[normal_plot_method_names, normal_plot_method_names] = sig_matrix_plot_base
         np.fill_diagonal(sig_matrix_plot.values, 1.0)
 
         summary_rows.append({
@@ -1783,6 +1956,11 @@ def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_
             "n_datasets_dropped": int(len(dropped_datasets)),
             "dropped_datasets": ", ".join(str(ds) for ds in dropped_datasets),
             "n_methods": int(len(avg_ranks)),
+            "reference_only_methods": ", ".join(str(m) for m in reference_avg_ranks.index),
+            "reference_only_n_datasets": ", ".join(
+                f"{method_name_map.get(m, m)}={int(reference_rank_counts.get(m, 0))}"
+                for m in reference_avg_ranks.index
+            ),
             "friedman_statistic": friedman_stat,
             "friedman_p": friedman_p,
             "posthoc_test": posthoc,
@@ -1792,7 +1970,7 @@ def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_
 
         display_name = metric_name_map.get(metric, metric)
         if figsize is None:
-            fig_w = max(min_fig_width, method_spacing * rank_matrix.shape[1] + width_padding)
+            fig_w = max(min_fig_width, method_spacing * len(avg_ranks_plot) + width_padding)
             local_figsize = (fig_w, fig_height)
         else:
             local_figsize = figsize
@@ -1829,6 +2007,57 @@ def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_
                 coll.set_edgecolor("black")
 
         ax.tick_params(axis='x', labelsize=rank_number_fontsize, colors="black")
+
+        if reference_plot_method_names:
+            reference_label_set = set(reference_plot_method_names)
+            reference_label_ypos = {}
+            for text_obj in ax.texts:
+                txt = text_obj.get_text().strip()
+                for ref_label in reference_label_set:
+                    is_reference_text = (
+                        txt.startswith(f"{ref_label} (")
+                        or txt.endswith(f") {ref_label}")
+                    )
+                    if is_reference_text:
+                        text_obj.set_color(reference_only_color)
+                        text_obj.set_fontstyle("italic")
+                        _, y_pos = text_obj.get_position()
+                        if np.isfinite(y_pos):
+                            reference_label_ypos[ref_label] = float(y_pos)
+
+            for ref_label, ref_rank in reference_avg_ranks_plot.items():
+                ref_rank = float(ref_rank)
+                ref_y = reference_label_ypos.get(ref_label)
+                for line_obj in ax.lines:
+                    if not hasattr(line_obj, "get_xdata") or not hasattr(line_obj, "get_ydata"):
+                        continue
+                    xdata = np.asarray(line_obj.get_xdata(), dtype=float)
+                    ydata = np.asarray(line_obj.get_ydata(), dtype=float)
+                    if xdata.size == 0 or ydata.size == 0:
+                        continue
+                    has_rank = np.nanmin(np.abs(xdata - ref_rank)) <= 1e-9
+                    has_label_y = ref_y is not None and np.nanmin(np.abs(ydata - ref_y)) <= 1e-9
+                    if has_rank and has_label_y:
+                        line_obj.set_color(reference_only_color)
+                        line_obj.set_linestyle(reference_only_linestyle)
+
+                for coll in ax.collections:
+                    if not hasattr(coll, "get_offsets"):
+                        continue
+                    offsets = coll.get_offsets()
+                    if offsets is None or len(offsets) == 0:
+                        continue
+                    offsets = np.asarray(offsets, dtype=float)
+                    has_marker = (
+                        offsets.ndim == 2
+                        and offsets.shape[1] >= 2
+                        and np.nanmin(np.abs(offsets[:, 0] - ref_rank)) <= 1e-9
+                    )
+                    if has_marker:
+                        if hasattr(coll, "set_facecolor"):
+                            coll.set_facecolor("none")
+                        if hasattr(coll, "set_edgecolor"):
+                            coll.set_edgecolor(reference_only_color)
 
         if highlight_method is not None:
             highlight_label = method_name_map.get(highlight_method, highlight_method)
@@ -1949,8 +2178,9 @@ def generate_critical_difference_diagrams(results_df, metrics, higher_is_better_
         return pd.DataFrame(
             columns=[
                 "metric", "rank_source", "rank_tie_method", "n_datasets_available", "n_datasets",
-                "n_datasets_dropped", "dropped_datasets", "n_methods", "friedman_statistic",
-                "friedman_p", "posthoc_test", "saved_path"
+                "n_datasets_dropped", "dropped_datasets", "n_methods", "reference_only_methods",
+                "reference_only_n_datasets", "friedman_statistic", "friedman_p",
+                "posthoc_test", "saved_path"
             ]
         )
 
